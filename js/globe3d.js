@@ -64,9 +64,11 @@ export class NagiBrazilGlobe3D {
     this.targetLon = -50.0;
     this.scanProgress = 0;
 
-    // Rotation state (centered initially on Brazil!)
-    this.rot = { x: 0.34, y: -0.68, targetX: 0.34, targetY: -0.68 };
-    this.zoom = { dist: 12.6, targetDist: 12.6 };
+    // Rotation state (centered initially on Brazil: lat -14.5, lon -51.5)
+    const initRx = (-14.5 * Math.PI) / 180;
+    const initRy = Math.PI / 2 - ((-51.5 + 180) * Math.PI) / 180;
+    this.rot = { x: initRx, y: initRy, targetX: initRx, targetY: initRy };
+    this.zoom = { dist: 14.0, targetDist: 14.0 };
     this.isDragging = false;
     this.prevPointer = { x: 0, y: 0 };
 
@@ -118,6 +120,7 @@ export class NagiBrazilGlobe3D {
     this.scene.add(kintsugiLight);
 
     this.globeGroup = new THREE.Group();
+    this.globeGroup.position.y = 0.32;
     this.scene.add(this.globeGroup);
 
     window.addEventListener('resize', () => this.resize());
@@ -137,27 +140,50 @@ export class NagiBrazilGlobe3D {
    * Renders a sharp 2048x1024 equirectangular Earth texture with bathymetry,
    * continents, Brazil landmass shading, and subtle lat/lon grid.
    */
-  createEarthTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 2048;
-    canvas.height = 1024;
-    const ctx = canvas.getContext('2d');
+  createEarthTextures() {
+    const W = 2048;
+    const H = 1024;
 
-    // Deep abyssal ocean gradient
-    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    grad.addColorStop(0, '#041226');
-    grad.addColorStop(0.5, '#071d3a');
-    grad.addColorStop(1, '#030e1e');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const diffCanvas = document.createElement('canvas');
+    diffCanvas.width = W;
+    diffCanvas.height = H;
+    const ctx = diffCanvas.getContext('2d');
 
-    // Subtle ocean bathymetric noise bands
-    for (let i = 0; i < 65; i++) {
-      const rx = (Math.sin(i * 19.3) * 0.5 + 0.5) * canvas.width;
-      const ry = (Math.cos(i * 7.7) * 0.5 + 0.5) * canvas.height;
-      const rad = 80 + (i % 5) * 45;
+    const specCanvas = document.createElement('canvas');
+    specCanvas.width = W;
+    specCanvas.height = H;
+    const sctx = specCanvas.getContext('2d');
+
+    const emitCanvas = document.createElement('canvas');
+    emitCanvas.width = W;
+    emitCanvas.height = H;
+    const ectx = emitCanvas.getContext('2d');
+
+    // 1. Photorealistic ocean bathymetry gradient
+    const oceanGrad = ctx.createLinearGradient(0, 0, 0, H);
+    oceanGrad.addColorStop(0, '#071b33');
+    oceanGrad.addColorStop(0.25, '#072244');
+    oceanGrad.addColorStop(0.5, '#092c54');
+    oceanGrad.addColorStop(0.75, '#072244');
+    oceanGrad.addColorStop(1, '#061529');
+    ctx.fillStyle = oceanGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Specular: oceans are glossy, land is matte
+    sctx.fillStyle = '#99c8e8';
+    sctx.fillRect(0, 0, W, H);
+
+    // Emissive: black ocean base
+    ectx.fillStyle = '#000000';
+    ectx.fillRect(0, 0, W, H);
+
+    // Ocean depth swells & ridges
+    for (let i = 0; i < 80; i++) {
+      const rx = (Math.sin(i * 19.3) * 0.5 + 0.5) * W;
+      const ry = (Math.cos(i * 7.7) * 0.5 + 0.5) * H;
+      const rad = 70 + (i % 6) * 45;
       const g = ctx.createRadialGradient(rx, ry, 5, rx, ry, rad);
-      g.addColorStop(0, 'rgba(14, 116, 144, 0.14)');
+      g.addColorStop(0, 'rgba(20, 110, 155, 0.20)');
       g.addColorStop(1, 'rgba(7, 29, 58, 0)');
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -165,86 +191,163 @@ export class NagiBrazilGlobe3D {
       ctx.fill();
     }
 
-    // Lat/Lon Graticule
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.10)';
+    // Subtle lat/lon lines
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
     ctx.lineWidth = 1;
     for (let lon = -180; lon <= 180; lon += 15) {
-      const x = ((lon + 180) / 360) * canvas.width;
+      const x = ((lon + 180) / 360) * W;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
+      ctx.lineTo(x, H);
       ctx.stroke();
     }
     for (let lat = -75; lat <= 75; lat += 15) {
-      const y = ((90 - lat) / 180) * canvas.height;
+      const y = ((90 - lat) / 180) * H;
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
+      ctx.lineTo(W, y);
       ctx.stroke();
     }
 
-    const drawRing = (ring) => {
-      ctx.beginPath();
+    const drawRing = (c, ring) => {
+      c.beginPath();
       ring.forEach(([lon, lat], idx) => {
-        const x = ((lon + 180) / 360) * canvas.width;
-        const y = ((90 - lat) / 180) * canvas.height;
-        if (idx === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const x = ((lon + 180) / 360) * W;
+        const y = ((90 - lat) / 180) * H;
+        if (idx === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
       });
-      ctx.closePath();
+      c.closePath();
     };
 
-    // World Continents
-    ctx.fillStyle = '#0f2942';
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.30)';
-    ctx.lineWidth = 1.2;
+    // World Continents (realistic deep slate-olive terrain + coastal shelf glow)
     WORLD_OUTLINES.forEach((poly) => {
-      drawRing(poly);
+      drawRing(ctx, poly);
+      ctx.shadowColor = 'rgba(45, 212, 191, 0.35)';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#153240';
       ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.35)';
+      ctx.lineWidth = 1.2;
       ctx.stroke();
+
+      drawRing(sctx, poly);
+      sctx.fillStyle = '#10141a';
+      sctx.fill();
     });
 
-    // Brazil States Base Fill (richer emerald-indigo terrain)
+    // Brazil States (lush Amazon/Cerrado emerald-teal orbital relief)
     BRAZIL_STATES.forEach((st, idx) => {
       st.polys.forEach((poly) => {
-        drawRing(poly);
-        ctx.fillStyle = idx % 2 === 0 ? '#113a4f' : '#134457';
+        drawRing(ctx, poly);
+        ctx.shadowColor = 'rgba(45, 212, 191, 0.45)';
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = idx % 3 === 0 ? '#184b49' : idx % 3 === 1 ? '#1c5652' : '#144144';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(45, 212, 191, 0.55)';
-        ctx.lineWidth = 1.4;
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(94, 234, 212, 0.65)';
+        ctx.lineWidth = 1.5;
         ctx.stroke();
+
+        drawRing(sctx, poly);
+        sctx.fillStyle = '#0e171c';
+        sctx.fill();
       });
+
+      // Warm city-light glow around each state hub
+      const [clon, clat] = st.center;
+      const cx = ((clon + 180) / 360) * W;
+      const cy = ((90 - clat) / 180) * H;
+      const cg = ectx.createRadialGradient(cx, cy, 1, cx, cy, 16);
+      cg.addColorStop(0, 'rgba(253, 224, 71, 0.92)');
+      cg.addColorStop(0.35, 'rgba(245, 158, 11, 0.45)');
+      cg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ectx.fillStyle = cg;
+      ectx.beginPath();
+      ectx.arc(cx, cy, 16, 0, Math.PI * 2);
+      ectx.fill();
     });
 
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.anisotropy = 4;
-    return tex;
+    // Extra coastal megalopolis cluster lights (SP, RJ, Salvador, Recife, Fortaleza, POA)
+    Object.values(CITY_COORDS).forEach((c) => {
+      const cx = ((c.lon + 180) / 360) * W;
+      const cy = ((90 - c.lat) / 180) * H;
+      const cg = ectx.createRadialGradient(cx, cy, 1, cx, cy, 12);
+      cg.addColorStop(0, 'rgba(255, 240, 170, 0.95)');
+      cg.addColorStop(0.5, 'rgba(245, 185, 66, 0.35)');
+      cg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ectx.fillStyle = cg;
+      ectx.beginPath();
+      ectx.arc(cx, cy, 12, 0, Math.PI * 2);
+      ectx.fill();
+    });
+
+    const map = new THREE.CanvasTexture(diffCanvas);
+    const specularMap = new THREE.CanvasTexture(specCanvas);
+    const emissiveMap = new THREE.CanvasTexture(emitCanvas);
+    map.anisotropy = 4;
+    return { map, specularMap, emissiveMap };
+  }
+
+  createCloudsTexture() {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 512;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 1024, 512);
+
+    for (let i = 0; i < 110; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const rx = 25 + Math.random() * 75;
+      const ry = 8 + Math.random() * 20;
+      const g = ctx.createRadialGradient(x, y, 2, x, y, rx);
+      g.addColorStop(0, 'rgba(226, 242, 255, 0.14)');
+      g.addColorStop(1, 'rgba(226, 242, 255, 0)');
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((Math.random() - 0.5) * 0.5);
+      ctx.scale(1, ry / rx);
+      ctx.translate(-x, -y);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, rx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    return new THREE.CanvasTexture(c);
   }
 
   buildEarthSphere() {
-    const tex = this.createEarthTexture();
-    const geo = new THREE.SphereGeometry(RADIUS, 64, 64);
+    const { map, specularMap, emissiveMap } = this.createEarthTextures();
+    const geo = new THREE.SphereGeometry(RADIUS, 72, 72);
     const mat = new THREE.MeshPhongMaterial({
-      map: tex,
-      specular: new THREE.Color(0x1e4e68),
-      shininess: 22
+      map,
+      specularMap,
+      specular: new THREE.Color(0x7dd3fc),
+      shininess: 34,
+      emissiveMap,
+      emissive: new THREE.Color(0xfbbf24),
+      emissiveIntensity: 0.72
     });
     this.earthMesh = new THREE.Mesh(geo, mat);
     this.globeGroup.add(this.earthMesh);
 
-    // Delicate 3D wireframe latitude/longitude aura
-    const gridGeo = new THREE.SphereGeometry(RADIUS + 0.006, 36, 24);
-    const gridMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      wireframe: true,
+    // Translucent drifting cloud layer
+    const cloudGeo = new THREE.SphereGeometry(RADIUS * 1.015, 64, 64);
+    const cloudMat = new THREE.MeshPhongMaterial({
+      map: this.createCloudsTexture(),
       transparent: true,
-      opacity: 0.055
+      opacity: 0.55,
+      depthWrite: false
     });
-    this.globeGroup.add(new THREE.Mesh(gridGeo, gridMat));
+    this.cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+    this.globeGroup.add(this.cloudMesh);
   }
 
   buildAtmosphere() {
-    const atmoGeo = new THREE.SphereGeometry(RADIUS * 1.075, 64, 64);
+    const atmoGeo = new THREE.SphereGeometry(RADIUS * 1.085, 64, 64);
     const atmoMat = new THREE.ShaderMaterial({
       vertexShader: `
         varying vec3 vNormal;
@@ -256,8 +359,8 @@ export class NagiBrazilGlobe3D {
       fragmentShader: `
         varying vec3 vNormal;
         void main() {
-          float intensity = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.2);
-          gl_FragColor = vec4(0.18, 0.78, 0.85, 1.0) * intensity * 1.15;
+          float intensity = pow(0.66 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+          gl_FragColor = vec4(0.22, 0.78, 0.96, 1.0) * intensity * 1.35;
         }
       `,
       blending: THREE.AdditiveBlending,
@@ -417,18 +520,16 @@ export class NagiBrazilGlobe3D {
   /**
    * Smoothly rotates globe to face (lat, lon) in front of the camera.
    */
-  focusCoordinates(lat, lon, dist = 10.6) {
-    // Convert lat/lon to target Euler rotations on globeGroup
+  focusCoordinates(lat, lon, dist = 12.8) {
+    // Convert lat/lon to target Euler rotations on globeGroup (order 'XYZ': Ry first, then Rx)
     const theta = (lon + 180) * (Math.PI / 180);
-    // latLonToVec3 puts lon=-50 at X = -r*sin(phi)*cos(theta), Z = r*sin(phi)*sin(theta)
-    // Facing +Z requires rotating Y by (theta - PI/2)
-    this.rot.targetY = -theta + Math.PI / 2;
-    this.rot.targetX = (-lat * Math.PI) / 180;
+    this.rot.targetY = Math.PI / 2 - theta;
+    this.rot.targetX = (lat * Math.PI) / 180;
     this.zoom.targetDist = dist;
   }
 
   focusBrazil(zoomIn = true) {
-    this.focusCoordinates(-14.5, -51.5, zoomIn ? 10.4 : 12.2);
+    this.focusCoordinates(-14.5, -51.5, zoomIn ? 12.4 : 13.8);
   }
 
   highlightState(uf) {
@@ -525,7 +626,7 @@ export class NagiBrazilGlobe3D {
     const target = this.resolveCityAndUF(city);
     this.targetLat = target.lat;
     this.targetLon = target.lon;
-    this.focusCoordinates(target.lat, target.lon, 9.6);
+    this.focusCoordinates(target.lat, target.lon, 11.4);
 
     const hudStatus = document.getElementById('globe-hud-status');
     const hudCoords = document.getElementById('globe-hud-coords');
@@ -565,8 +666,8 @@ export class NagiBrazilGlobe3D {
 
     setTimeout(() => {
       this.isScanning = false;
-      this.zoom.targetDist = 11.2;
-      if (hudStatus) hudStatus.textContent = `Varredura concluída em ${target.uf} • Satélite Treg em espera`;
+      this.zoom.targetDist = 12.8;
+      if (hudStatus) hudStatus.textContent = `Alvo ${target.uf} concluído • Satélite Treg pronto`;
       scannerBox?.classList.add('hidden');
     }, 1400);
   }
@@ -590,6 +691,9 @@ export class NagiBrazilGlobe3D {
     this.globeGroup.rotation.y = this.rot.y;
     this.camera.position.z = this.zoom.dist;
 
+    if (this.cloudMesh) {
+      this.cloudMesh.rotation.y += dt * 0.015;
+    }
     if (this.orbitalRing) {
       this.orbitalRing.rotation.z += dt * (this.isScanning ? 1.8 : 0.28);
       this.orbitalRing2.rotation.z -= dt * (this.isScanning ? 1.2 : 0.18);

@@ -5,41 +5,41 @@
 export const TREG_ENDPOINTS = [
   {
     id: 'treg.companies.search',
-    label: 'Empresas & Negócios (treg.companies.search)',
+    label: 'Empresas (treg.companies.search)',
     method: 'POST',
-    cost: '$0.01 - $0.12 / chamada',
+    cost: '$0.01–0.12',
     providers: '25 provedores roteados',
     desc: 'Busca empresas por nicho, nome, tecnologia ou domínio com roteamento automático.'
   },
   {
     id: 'treg.people.search',
-    label: 'Decisores & Sócios (treg.people.search)',
+    label: 'Decisores (treg.people.search)',
     method: 'POST',
-    cost: '$0.01 - $0.10 / hit',
+    cost: '$0.01–0.10',
     providers: '25 provedores roteados',
     desc: 'Encontra fundadores, diretores e donos por segmento, cargo ou empresa.'
   },
   {
     id: 'bravesearch.places.search',
-    label: 'Negócios Locais / Mapas (bravesearch.places.search)',
+    label: 'Mapas Locais (bravesearch.places)',
     method: 'GET',
-    cost: '$0.005 / chamada',
+    cost: '$0.005',
     providers: 'Brave Places',
     desc: 'Extrai estabelecimentos locais (churrascarias, clínicas, lojas) com endereço e avaliações.'
   },
   {
     id: 'treg.people.email.find',
-    label: 'Enriquecer E-mail (treg.people.email.find)',
+    label: 'E-mails (treg.people.email.find)',
     method: 'POST',
-    cost: '$0.02 / hit',
+    cost: '$0.02',
     providers: '33 provedores roteados',
     desc: 'Descobre e valida e-mail corporativo do decisor para abordagem direta.'
   },
   {
     id: 'treg.companies.enrich',
-    label: 'Raio-X Completo (treg.companies.enrich)',
+    label: 'Raio-X Empresa (companies.enrich)',
     method: 'POST',
-    cost: '$0.03 / hit',
+    cost: '$0.03',
     providers: '32 provedores roteados',
     desc: 'Enriquece domínio, LinkedIn, stack tecnológica e faturamento estimado.'
   }

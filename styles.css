@@ -1,13 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+JP:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+JP:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Shippori+Mincho:wght@500;700;800&display=swap');
 
 :root {
-  --bg-abyss: #040914;
-  --bg-indigo: #091529;
-  --bg-card: rgba(9, 20, 38, 0.72);
-  --border-shoji: rgba(148, 197, 233, 0.16);
-  --border-gold: rgba(245, 189, 77, 0.38);
-  --washi: #f4efe6;
-  --foam: #e2ecf5;
+  --bg-abyss: #030711;
+  --bg-indigo: #071122;
+  --washi: #f5f2eb;
+  --foam: #e6eef8;
   --wave-teal: #2dd4bf;
   --wave-cyan: #38bdf8;
   --vermilion: #e11d48;
@@ -26,14 +23,16 @@ html, body {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
 }
 
 .font-jp {
-  font-family: 'Noto Serif JP', serif;
+  font-family: 'Shippori Mincho', 'Noto Serif JP', serif;
 }
 
 .font-display {
-  font-family: 'Cinzel', 'Noto Serif JP', serif;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  letter-spacing: -0.03em;
 }
 
 .font-mono-code {
@@ -50,36 +49,42 @@ html, body {
   pointer-events: none;
 }
 
-/* Seigaiha (Japanese Wave) Subtle Pattern Overlay */
+/* Subtle Vignette & Atmospheric Mist over 3D Ocean */
 .seigaiha-overlay {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.045;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'%3E%3Cg fill='none' stroke='%2393c5fd' stroke-width='1.2'%3E%3Ccircle cx='60' cy='60' r='55'/%3E%3Ccircle cx='60' cy='60' r='44'/%3E%3Ccircle cx='60' cy='60' r='33'/%3E%3Ccircle cx='60' cy='60' r='22'/%3E%3Ccircle cx='60' cy='60' r='11'/%3E%3Ccircle cx='0' cy='60' r='55'/%3E%3Ccircle cx='0' cy='60' r='44'/%3E%3Ccircle cx='0' cy='60' r='33'/%3E%3Ccircle cx='0' cy='60' r='22'/%3E%3Ccircle cx='0' cy='60' r='11'/%3E%3Ccircle cx='120' cy='60' r='55'/%3E%3Ccircle cx='120' cy='60' r='44'/%3E%3Ccircle cx='120' cy='60' r='33'/%3E%3Ccircle cx='120' cy='60' r='22'/%3E%3Ccircle cx='120' cy='60' r='11'/%3E%3Ccircle cx='30' cy='30' r='55'/%3E%3Ccircle cx='30' cy='30' r='44'/%3E%3Ccircle cx='30' cy='30' r='33'/%3E%3Ccircle cx='30' cy='30' r='22'/%3E%3Ccircle cx='30' cy='30' r='11'/%3E%3Ccircle cx='90' cy='30' r='55'/%3E%3Ccircle cx='90' cy='30' r='44'/%3E%3Ccircle cx='90' cy='30' r='33'/%3E%3Ccircle cx='90' cy='30' r='22'/%3E%3Ccircle cx='90' cy='30' r='11'/%3E%3C/g%3E%3C/svg%3E");
+  background:
+    radial-gradient(circle at 80% 15%, rgba(56, 189, 248, 0.08), transparent 45%),
+    radial-gradient(circle at 18% 82%, rgba(225, 29, 72, 0.06), transparent 45%),
+    radial-gradient(ellipse at center, transparent 45%, rgba(2, 5, 14, 0.65) 100%);
 }
 
-/* Shoji / Lacquer Glass Cards */
+/* Modern Frosted Obsidian Glass Cards (Apple / Linear x Kyoto) */
 .nagi-card {
-  background: linear-gradient(145deg, rgba(11, 24, 46, 0.82), rgba(5, 11, 23, 0.88));
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--border-shoji);
+  background: linear-gradient(160deg, rgba(13, 23, 42, 0.64) 0%, rgba(6, 11, 23, 0.78) 100%);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow:
-    0 20px 50px -15px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+    0 24px 60px -18px rgba(0, 0, 0, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.11);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .nagi-card:hover {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: rgba(56, 189, 248, 0.28);
+  box-shadow:
+    0 28px 65px -16px rgba(0, 0, 0, 0.85),
+    0 0 32px -12px rgba(45, 212, 191, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
-/* 3D Perspective Tilt Card */
+/* 3D Perspective Tilt Card with Specular Sheen */
 .tilt-card {
   transform-style: preserve-3d;
-  perspective: 1000px;
+  perspective: 1100px;
   position: relative;
   overflow: hidden;
 }
@@ -88,7 +93,7 @@ html, body {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(245, 185, 66, 0.14), transparent 55%);
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(255, 255, 255, 0.10), transparent 52%);
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;
@@ -100,49 +105,58 @@ html, body {
 
 .kintsugi-line {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(245, 185, 66, 0.7), rgba(45, 212, 191, 0.6), transparent);
+  background: linear-gradient(90deg, transparent, rgba(245, 185, 66, 0.55), rgba(45, 212, 191, 0.5), transparent);
 }
 
-/* Hanko Seal (Japanese Stamp) */
+/* Hanko Seal (Japanese Minimalist Stamp) */
 .hanko-seal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid #e11d48;
-  color: #fb7185;
-  background: rgba(225, 29, 72, 0.12);
-  border-radius: 6px;
-  font-family: 'Noto Serif JP', serif;
+  border: 1.5px solid rgba(244, 63, 94, 0.75);
+  color: #fda4af;
+  background: linear-gradient(135deg, rgba(225, 29, 72, 0.22), rgba(159, 18, 57, 0.12));
+  border-radius: 12px;
+  font-family: 'Shippori Mincho', serif;
   font-weight: 700;
-  box-shadow: 0 0 16px rgba(225, 29, 72, 0.25);
+  box-shadow:
+    0 0 24px rgba(225, 29, 72, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* Buttons */
+/* Modern Luminous Buttons */
 .btn-wave {
-  background: linear-gradient(135deg, #0ea5e9 0%, #2dd4bf 100%);
-  color: #030712;
+  background: linear-gradient(135deg, #38bdf8 0%, #2dd4bf 100%);
+  color: #020617;
   font-weight: 700;
-  transition: all 0.25s ease;
-  box-shadow: 0 8px 25px -6px rgba(45, 212, 191, 0.45);
+  letter-spacing: -0.01em;
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    0 10px 28px -8px rgba(45, 212, 191, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .btn-wave:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 30px -4px rgba(56, 189, 248, 0.6);
-  filter: brightness(1.06);
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 16px 34px -6px rgba(56, 189, 248, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  filter: brightness(1.05);
 }
 
 .btn-vermilion {
-  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
-  color: #fff5f5;
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+  color: #ffffff;
   font-weight: 600;
-  transition: all 0.25s ease;
-  box-shadow: 0 8px 24px -6px rgba(225, 29, 72, 0.5);
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    0 10px 26px -8px rgba(225, 29, 72, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .btn-vermilion:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 28px -4px rgba(225, 29, 72, 0.68);
+  transform: translateY(-1.5px);
+  box-shadow: 0 14px 30px -6px rgba(244, 63, 94, 0.72);
 }
 
 /* Sidebar Nav Item */
@@ -152,17 +166,18 @@ html, body {
 }
 
 .nav-item.active {
-  background: linear-gradient(90deg, rgba(45, 212, 191, 0.16), rgba(56, 189, 248, 0.04));
-  border-color: rgba(45, 212, 191, 0.4);
-  color: #f4efe6;
+  background: linear-gradient(90deg, rgba(45, 212, 191, 0.14), rgba(56, 189, 248, 0.03));
+  border-color: rgba(45, 212, 191, 0.32);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .nav-item.active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 18%;
-  bottom: 18%;
+  top: 20%;
+  bottom: 20%;
   width: 3px;
   border-radius: 999px;
   background: linear-gradient(180deg, #f5b942, #2dd4bf);
@@ -170,34 +185,24 @@ html, body {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(4, 9, 20, 0.8);
+  background: rgba(3, 7, 17, 0.5);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.25);
+  background: rgba(148, 163, 184, 0.22);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(45, 212, 191, 0.5);
-}
-
-/* Floating animation */
-@keyframes floatSlow {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
-}
-
-.animate-float-slow {
-  animation: floatSlow 6s ease-in-out infinite;
+  background: rgba(45, 212, 191, 0.45);
 }
 
 @keyframes pulseRing {
-  0% { transform: scale(0.92); opacity: 0.8; }
-  70% { transform: scale(1.25); opacity: 0; }
-  100% { transform: scale(1.25); opacity: 0; }
+  0% { transform: scale(0.92); opacity: 0.85; }
+  75% { transform: scale(1.4); opacity: 0; }
+  100% { transform: scale(1.4); opacity: 0; }
 }
 
 .live-dot::after {
@@ -206,7 +211,7 @@ html, body {
   inset: -3px;
   border-radius: 999px;
   border: 1.5px solid #2dd4bf;
-  animation: pulseRing 2s infinite;
+  animation: pulseRing 2.2s infinite;
 }
 
 /* View Transitions */
@@ -222,7 +227,7 @@ html, body {
 @keyframes fadeSlideUp {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -230,16 +235,17 @@ html, body {
   }
 }
 
-/* Input styling */
+/* Sleek Inputs */
 .nagi-input {
-  background: rgba(4, 10, 22, 0.78);
-  border: 1px solid rgba(148, 197, 233, 0.2);
-  color: #f4efe6;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: rgba(4, 9, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  color: #f8fafc;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .nagi-input:focus {
   outline: none;
-  border-color: #2dd4bf;
-  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.16);
+  background: rgba(6, 13, 28, 0.9);
+  border-color: rgba(45, 212, 191, 0.65);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.14);
 }

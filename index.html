@@ -290,9 +290,9 @@
           <!-- KPI Grid -->
           <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <div class="nagi-card tilt-card rounded-2xl p-4 sm:p-5">
-              <div class="flex items-center justify-between text-slate-400 text-xs mb-2">
+              <div class="flex items-center justify-between gap-2 text-slate-400 text-xs mb-2">
                 <span>Prospectados</span>
-                <i data-lucide="users" class="w-4 h-4 text-sky-400"></i>
+                <i data-lucide="users" class="w-4 h-4 text-sky-400 shrink-0"></i>
               </div>
               <p id="kpi-prospected" class="text-2xl sm:text-3xl font-extrabold text-white">0</p>
               <p class="text-[11px] text-teal-300 mt-1">Via Treg & Pipeline</p>
@@ -410,11 +410,11 @@
               </div>
               <div class="md:col-span-3">
                 <label class="block text-xs font-semibold text-slate-300 mb-1.5">Endpoint Treg</label>
-                <select id="treg-endpoint-select" class="nagi-input w-full rounded-xl px-3 py-2.5 text-xs"></select>
+                <select id="treg-endpoint-select" class="nagi-input w-full h-[42px] rounded-xl px-3 text-xs truncate"></select>
               </div>
               <div class="md:col-span-2">
                 <label class="block text-xs font-semibold text-slate-300 mb-1.5">Qtd. Leads</label>
-                <select id="prospect-limit" class="nagi-input w-full rounded-xl px-3 py-2.5 text-sm">
+                <select id="prospect-limit" class="nagi-input w-full h-[42px] rounded-xl px-3 text-sm">
                   <option value="6" selected>6 leads</option>
                   <option value="9">9 leads</option>
                   <option value="12">12 leads</option>
@@ -455,14 +455,14 @@
               </div>
 
               <!-- 3D WebGL Globe Mount + UF Labels -->
-              <div class="relative w-full h-[360px] sm:h-[400px] rounded-xl overflow-hidden bg-slate-950/90 border border-white/10">
+              <div class="relative w-full h-[380px] sm:h-[430px] rounded-xl overflow-hidden bg-slate-950/95 border border-white/10">
                 <div id="brazil-globe-canvas" class="w-full h-full"></div>
                 <div id="globe-uf-labels" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
 
                 <!-- Orbital HUD Overlay -->
-                <div class="absolute bottom-3 left-3 right-3 pointer-events-none flex flex-col gap-1.5 bg-slate-950/75 backdrop-blur-md border border-teal-400/25 rounded-xl p-3">
+                <div class="absolute bottom-2.5 left-2.5 right-2.5 pointer-events-none flex flex-col gap-1.5 bg-slate-950/75 backdrop-blur-md border border-teal-400/25 rounded-xl px-3 py-2">
                   <div class="flex items-center justify-between gap-2 text-[11px]">
-                    <span id="globe-hud-status" class="font-semibold text-teal-200 truncate">Satélite Nagi pronto • Brasil (27 UFs mapeadas)</span>
+                    <span id="globe-hud-status" class="font-semibold text-teal-200">Satélite Nagi • Brasil (27 UFs)</span>
                     <span id="globe-hud-coords" class="font-mono-code text-amber-300 shrink-0">-14.50° S, -51.50° W</span>
                   </div>
                   <div class="w-full h-1.5 rounded-full bg-slate-900 overflow-hidden">
@@ -482,7 +482,7 @@
                   Salvar Todos no Pipeline
                 </button>
               </div>
-              <pre id="treg-terminal-log" class="flex-1 font-mono-code text-[11px] text-slate-300 bg-slate-950/85 p-3.5 rounded-xl border border-white/5 overflow-auto whitespace-pre-wrap min-h-[260px] max-h-[340px]">Aguardando comando de prospecção...</pre>
+              <pre id="treg-terminal-log" class="flex-1 font-mono-code text-[11px] text-slate-300 bg-slate-950/85 p-3.5 rounded-xl border border-white/5 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all min-h-[280px] max-h-[360px]">Aguardando comando de prospecção...</pre>
               <div class="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-400 flex items-center justify-between">
                 <span>Roteamento multi-provedor Treg</span>
                 <span class="text-amber-300 font-semibold">Pay-per-call ativo</span>
@@ -508,8 +508,8 @@
             <div class="lg:col-span-5 nagi-card rounded-2xl p-4 space-y-3">
               <input id="leads-search" type="text" placeholder="Buscar empresa, dono ou cidade..." class="nagi-input w-full rounded-xl px-3.5 py-2 text-xs" />
               <div class="grid grid-cols-2 gap-2">
-                <select id="leads-filter-segment" class="nagi-input rounded-xl px-3 py-2 text-xs"></select>
-                <select id="leads-filter-status" class="nagi-input rounded-xl px-3 py-2 text-xs">
+                <select id="leads-filter-segment" class="nagi-input h-[36px] truncate rounded-xl px-3 text-xs"></select>
+                <select id="leads-filter-status" class="nagi-input h-[36px] truncate rounded-xl px-3 text-xs">
                   <option value="">Todos Status</option>
                   <option value="Novo">Novo</option>
                   <option value="Contatado">Contatado</option>
