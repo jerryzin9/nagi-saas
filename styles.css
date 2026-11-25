@@ -1,0 +1,245 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+JP:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --bg-abyss: #040914;
+  --bg-indigo: #091529;
+  --bg-card: rgba(9, 20, 38, 0.72);
+  --border-shoji: rgba(148, 197, 233, 0.16);
+  --border-gold: rgba(245, 189, 77, 0.38);
+  --washi: #f4efe6;
+  --foam: #e2ecf5;
+  --wave-teal: #2dd4bf;
+  --wave-cyan: #38bdf8;
+  --vermilion: #e11d48;
+  --kintsugi: #f5b942;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-abyss);
+  color: var(--foam);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+.font-jp {
+  font-family: 'Noto Serif JP', serif;
+}
+
+.font-display {
+  font-family: 'Cinzel', 'Noto Serif JP', serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* 3D Canvas Container */
+#nagi-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Seigaiha (Japanese Wave) Subtle Pattern Overlay */
+.seigaiha-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60' viewBox='0 0 120 60'%3E%3Cg fill='none' stroke='%2393c5fd' stroke-width='1.2'%3E%3Ccircle cx='60' cy='60' r='55'/%3E%3Ccircle cx='60' cy='60' r='44'/%3E%3Ccircle cx='60' cy='60' r='33'/%3E%3Ccircle cx='60' cy='60' r='22'/%3E%3Ccircle cx='60' cy='60' r='11'/%3E%3Ccircle cx='0' cy='60' r='55'/%3E%3Ccircle cx='0' cy='60' r='44'/%3E%3Ccircle cx='0' cy='60' r='33'/%3E%3Ccircle cx='0' cy='60' r='22'/%3E%3Ccircle cx='0' cy='60' r='11'/%3E%3Ccircle cx='120' cy='60' r='55'/%3E%3Ccircle cx='120' cy='60' r='44'/%3E%3Ccircle cx='120' cy='60' r='33'/%3E%3Ccircle cx='120' cy='60' r='22'/%3E%3Ccircle cx='120' cy='60' r='11'/%3E%3Ccircle cx='30' cy='30' r='55'/%3E%3Ccircle cx='30' cy='30' r='44'/%3E%3Ccircle cx='30' cy='30' r='33'/%3E%3Ccircle cx='30' cy='30' r='22'/%3E%3Ccircle cx='30' cy='30' r='11'/%3E%3Ccircle cx='90' cy='30' r='55'/%3E%3Ccircle cx='90' cy='30' r='44'/%3E%3Ccircle cx='90' cy='30' r='33'/%3E%3Ccircle cx='90' cy='30' r='22'/%3E%3Ccircle cx='90' cy='30' r='11'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Shoji / Lacquer Glass Cards */
+.nagi-card {
+  background: linear-gradient(145deg, rgba(11, 24, 46, 0.82), rgba(5, 11, 23, 0.88));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border-shoji);
+  box-shadow:
+    0 20px 50px -15px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.nagi-card:hover {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+/* 3D Perspective Tilt Card */
+.tilt-card {
+  transform-style: preserve-3d;
+  perspective: 1000px;
+  position: relative;
+  overflow: hidden;
+}
+
+.tilt-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(245, 185, 66, 0.14), transparent 55%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.tilt-card:hover::after {
+  opacity: 1;
+}
+
+.kintsugi-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245, 185, 66, 0.7), rgba(45, 212, 191, 0.6), transparent);
+}
+
+/* Hanko Seal (Japanese Stamp) */
+.hanko-seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #e11d48;
+  color: #fb7185;
+  background: rgba(225, 29, 72, 0.12);
+  border-radius: 6px;
+  font-family: 'Noto Serif JP', serif;
+  font-weight: 700;
+  box-shadow: 0 0 16px rgba(225, 29, 72, 0.25);
+}
+
+/* Buttons */
+.btn-wave {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2dd4bf 100%);
+  color: #030712;
+  font-weight: 700;
+  transition: all 0.25s ease;
+  box-shadow: 0 8px 25px -6px rgba(45, 212, 191, 0.45);
+}
+
+.btn-wave:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px -4px rgba(56, 189, 248, 0.6);
+  filter: brightness(1.06);
+}
+
+.btn-vermilion {
+  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  color: #fff5f5;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  box-shadow: 0 8px 24px -6px rgba(225, 29, 72, 0.5);
+}
+
+.btn-vermilion:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px -4px rgba(225, 29, 72, 0.68);
+}
+
+/* Sidebar Nav Item */
+.nav-item {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.nav-item.active {
+  background: linear-gradient(90deg, rgba(45, 212, 191, 0.16), rgba(56, 189, 248, 0.04));
+  border-color: rgba(45, 212, 191, 0.4);
+  color: #f4efe6;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f5b942, #2dd4bf);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(4, 9, 20, 0.8);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.25);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(45, 212, 191, 0.5);
+}
+
+/* Floating animation */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+@keyframes pulseRing {
+  0% { transform: scale(0.92); opacity: 0.8; }
+  70% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1.5px solid #2dd4bf;
+  animation: pulseRing 2s infinite;
+}
+
+/* View Transitions */
+.view-section {
+  display: none;
+  animation: fadeSlideUp 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.view-section.active {
+  display: block;
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Input styling */
+.nagi-input {
+  background: rgba(4, 10, 22, 0.78);
+  border: 1px solid rgba(148, 197, 233, 0.2);
+  color: #f4efe6;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nagi-input:focus {
+  outline: none;
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.16);
+}

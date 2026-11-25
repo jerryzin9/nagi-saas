@@ -1,0 +1,11 @@
+{
+  "name": "nagi-saas",
+  "version": "1.0.0",
+  "description": "Nagi — SaaS de Prospecção Treg, Robô de Abordagem e Estúdio de Landing Pages & n8n",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["saas", "treg", "n8n", "landing-page", "threejs", "tailwind"],
+  "license": "MIT"
+}
