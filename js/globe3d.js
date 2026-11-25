@@ -107,16 +107,16 @@ export class NagiBrazilGlobe3D {
     // Realistic sunlight + rim lighting
     this.scene.add(new THREE.AmbientLight(0x385980, 1.35));
 
-    const sun = new THREE.DirectionalLight(0xf8fafc, 2.1);
-    sun.position.set(12, 8, 14);
+    const sun = new THREE.DirectionalLight(0xfef3c7, 1.45);
+    sun.position.set(16, 10, 14);
     this.scene.add(sun);
 
-    const rimCyan = new THREE.DirectionalLight(0x2dd4bf, 1.15);
+    const rimCyan = new THREE.DirectionalLight(0x38bdf8, 0.95);
     rimCyan.position.set(-14, -4, -10);
     this.scene.add(rimCyan);
 
-    const kintsugiLight = new THREE.PointLight(0xf5b942, 1.3, 30);
-    kintsugiLight.position.set(6, 5, 10);
+    const kintsugiLight = new THREE.PointLight(0xf5b942, 0.75, 30);
+    kintsugiLight.position.set(6, 5, 12);
     this.scene.add(kintsugiLight);
 
     this.globeGroup = new THREE.Group();
@@ -325,11 +325,11 @@ export class NagiBrazilGlobe3D {
     const mat = new THREE.MeshPhongMaterial({
       map,
       specularMap,
-      specular: new THREE.Color(0x7dd3fc),
-      shininess: 34,
+      specular: new THREE.Color(0x1f4e6b),
+      shininess: 14,
       emissiveMap,
       emissive: new THREE.Color(0xfbbf24),
-      emissiveIntensity: 0.72
+      emissiveIntensity: 0.78
     });
     this.earthMesh = new THREE.Mesh(geo, mat);
     this.globeGroup.add(this.earthMesh);

@@ -1,8 +1,8 @@
-import { NagiOcean3D } from './ocean3d.js';
-import { NagiBrazilGlobe3D } from './globe3d.js';
-import { TREG_ENDPOINTS, INITIAL_LEADS, PROMPT_TEMPLATES, SCRIPT_TEMPLATES } from './data.js';
-import { TregClient } from './treg.js';
-import { generateLandingPageHTML, generateN8nWorkflowJSON } from './generator.js';
+import { NagiOcean3D } from './ocean3d.js?v=kanagawa3';
+import { NagiBrazilGlobe3D } from './globe3d.js?v=kanagawa3';
+import { TREG_ENDPOINTS, INITIAL_LEADS, PROMPT_TEMPLATES, SCRIPT_TEMPLATES } from './data.js?v=kanagawa3';
+import { TregClient } from './treg.js?v=kanagawa3';
+import { generateLandingPageHTML, generateN8nWorkflowJSON } from './generator.js?v=kanagawa3';
 
 const STORAGE_KEY = 'nagi_saas_state_v1';
 
