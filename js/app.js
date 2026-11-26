@@ -310,8 +310,17 @@ function modal(html) {
 }
 const fecharModal = () => ($('#modal').hidden = true);
 
-function compor(l) {
+async function linhaCase(l) {
+  try {
+    const r = await get(`/cases/para?segmento=${encodeURIComponent([l.segmento, l.empresa, l.nome, l.notas].filter(Boolean).join(' '))}`);
+    return r?.linha || '';
+  } catch { return ''; }
+}
+
+async function compor(l) {
   const assinatura = E.config.assinatura || 'Jerry';
+  const caso = await linhaCase(l);
+  const comCase = (t) => (caso && !t.includes('http') ? `${t}\n\n${caso}` : t);
   const corpo = modal(`
     <h2>Mensagem para ${esc(nomeLead(l))}</h2>
     <p class="sub">${esc(fone(l.telefone))} · hoje: ${E.wa.enviadosHoje || 0} de ${E.wa.limiteDia || '—'} conversas novas</p>
@@ -325,8 +334,8 @@ function compor(l) {
     </div>`);
   const txt = $('#txt-msg', corpo);
   const conta = () => ($('#conta-msg', corpo).textContent = `${txt.value.length} caracteres · curta e pessoal funciona melhor`);
-  $$('[data-m]', corpo).forEach((b) => (b.onclick = () => { txt.value = MODELOS[b.dataset.m].texto(l, assinatura); conta(); }));
-  txt.value = MODELOS[l.status === 'abordado' ? 'retomar' : 'site'].texto(l, assinatura); conta();
+  $$('[data-m]', corpo).forEach((b) => (b.onclick = () => { txt.value = comCase(MODELOS[b.dataset.m].texto(l, assinatura)); conta(); }));
+  txt.value = comCase(MODELOS[l.status === 'abordado' ? 'retomar' : 'site'].texto(l, assinatura)); conta();
   txt.oninput = conta;
   $('#m-cancelar', corpo).onclick = fecharModal;
   $('#m-fila', corpo).onclick = async () => {
@@ -343,11 +352,12 @@ function compor(l) {
   };
 }
 
-function comporIg(l) {
+async function comporIg(l) {
+  const caso = await linhaCase(l);
   const corpo = modal(`
     <h2>DM para @${esc(usuarioIg(l.instagram))}</h2>
     <p class="sub">O Nagi não envia DM sozinho (o Instagram bloqueia conta que faz isso). Guarde o rascunho e envie com um clique.</p>
-    <textarea id="txt-ig" style="width:100%;min-height:150px">${esc(MODELO_IG(l, E.config.assinatura || 'Jerry'))}</textarea>
+    <textarea id="txt-ig" style="width:100%;min-height:170px">${esc(MODELO_IG(l, E.config.assinatura || 'Jerry') + (caso ? '\n\n' + caso : ''))}</textarea>
     <div class="rodape">
       <button class="btn btn-vidro" id="ig-cancelar">Cancelar</button>
       <button class="btn btn-vidro" id="ig-salvar"><i data-lucide="save"></i>Guardar rascunho</button>
@@ -551,19 +561,22 @@ async function carregarFila() {
 // ---------- INSTAGRAM ----------
 async function carregarIg() {
   E.rascunhos = (await tentar(() => get('/instagram/rascunhos'))) || [];
-  const pend = E.rascunhos.filter((r) => !r.feito);
+  const feito = (r) => r.status === 'feito' || r.feito;
+  const pend = E.rascunhos.filter((r) => !feito(r));
   $('#badge-ig').textContent = pend.length || '';
   const lista = $('#lista-ig');
   if (!E.rascunhos.length) { lista.innerHTML = '<div class="cartao vazio" style="grid-column:1/-1"><p class="jp">写</p><p>Sem rascunhos. Abra um lead com Instagram e clique em “DM no Instagram”, ou peça para a IA preparar pelo MCP.</p></div>'; return; }
   lista.innerHTML = E.rascunhos.map((r) => `<div class="item-fila" data-id="${esc(r.id)}">
-    <div class="topo"><p class="quem">@${esc(r.usuario)}</p><span class="selo ${r.feito ? 'ok' : 'alerta'}">${r.feito ? 'enviada' : 'para enviar'}</span></div>
+    <div class="topo"><p class="quem"><a href="https://www.instagram.com/${esc(r.usuario)}/" target="_blank" rel="noopener">@${esc(r.usuario)}</a></p><span class="selo ${feito(r) ? 'ok' : 'alerta'}">${feito(r) ? 'enviada' : 'para enviar'}</span></div>
     <textarea>${esc(r.texto)}</textarea>
-    ${r.feito ? '' : '<div class="linha-botoes"><button class="btn btn-claro btn-pequeno" data-a="abrir"><i data-lucide="external-link"></i>Copiar e abrir a DM</button><button class="btn btn-vidro btn-pequeno" data-a="feito">Marcar como enviada</button></div>'}
+    ${feito(r) ? '' : '<div class="linha-botoes"><button class="btn btn-claro btn-pequeno" data-a="abrir"><i data-lucide="external-link"></i>Copiar e abrir a DM</button><button class="btn btn-vidro btn-pequeno" data-a="feito">Marcar como enviada</button><button class="btn btn-vidro btn-pequeno" data-a="salvar">Salvar texto</button><button class="btn btn-perigo btn-pequeno" data-a="descartar">Descartar</button></div>'}
   </div>`).join('');
   $$('.item-fila', lista).forEach((el) => {
     const r = E.rascunhos.find((x) => x.id === el.dataset.id);
     $$('[data-a]', el).forEach((b) => (b.onclick = async () => {
       if (b.dataset.a === 'abrir') return copiarEAbrirIg(r.usuario, $('textarea', el).value, r.id);
+      if (b.dataset.a === 'salvar') return tentar(() => patch(`/instagram/rascunho/${r.id}`, { texto: $('textarea', el).value }), 'Texto salvo');
+      if (b.dataset.a === 'descartar') { if (await tentar(() => del(`/instagram/rascunho/${r.id}`), 'DM descartada')) carregarIg(); return; }
       if (await tentar(() => post(`/instagram/rascunho/${r.id}/feito`), 'Marcada como enviada')) carregarIg();
     }));
   });

@@ -295,6 +295,24 @@ export function criarRascunhoInstagram({ leadId, usuario, texto }) {
   return r;
 }
 
+export function apagarRascunhoInstagram(id) {
+  const l = lerJSON('instagram.json', []);
+  const i = l.findIndex((x) => x.id === id);
+  if (i < 0) return null;
+  const [r] = l.splice(i, 1);
+  gravarJSON('instagram.json', l);
+  return r;
+}
+
+export function editarRascunhoInstagram(id, texto) {
+  const l = lerJSON('instagram.json', []);
+  const r = l.find((x) => x.id === id);
+  if (!r) return null;
+  if (String(texto || '').trim()) r.texto = String(texto).trim().slice(0, 1000);
+  gravarJSON('instagram.json', l);
+  return r;
+}
+
 export function marcarRascunhoFeito(id) {
   const l = lerJSON('instagram.json', []);
   const r = l.find((x) => x.id === id);

@@ -175,3 +175,150 @@ export async function prospectarMaps({ busca, cidade, limite = 20 }) {
     conta: token ? 'time de prospecção (chave do Nagi)' : 'login do CLI',
   };
 }
+
+// ---------------- Instagram ----------------
+// Perfis públicos por palavra-chave (treg.instagram.search.users, ~US$ 0,002 por busca). Só leitura: o Nagi
+// nunca manda DM sozinho; a DM vira rascunho e o Jerry envia com um clique.
+function normalizarPerfil(p) {
+  const url = String(primeiro(p, 'profile_url', 'url', 'link') || '');
+  const doUrl = (url.match(/instagram\.com\/([A-Za-z0-9._]+)/i) || [])[1] || '';
+  const usuario = String(primeiro(p, 'username', 'handle', 'user.username') || doUrl).replace(/^@/, '');
+  return {
+    usuario,
+    nome: String(primeiro(p, 'full_name', 'fullName', 'name', 'title', 'user.full_name') || ''),
+    bio: String(primeiro(p, 'biography', 'bio', 'description', 'passage', 'snippet', 'text') || '').replace(/\s+/g, ' ').slice(0, 300),
+    seguidores: Number(primeiro(p, 'follower_count', 'followers', 'followers_count', 'edge_followed_by.count', 'user.follower_count')) || null,
+    link: limparSite(primeiro(p, 'external_url', 'bio_link', 'website', 'externalUrl')),
+    verificado: !!primeiro(p, 'is_verified', 'verified'),
+    privado: !!primeiro(p, 'is_private', 'private'),
+  };
+}
+
+export async function prospectarInstagram({ busca, cidade, limite = 30 }) {
+  const b = String(busca || '').trim();
+  const c = String(cidade || '').trim();
+  if (!b) return { erro: 'informe o que buscar (ex.: barbearia)' };
+  const token = dados.config().tregToken;
+  if (!token) return { erro: 'salve a chave do treg em Ajustes (conta de prospecção) para buscar no Instagram' };
+  const q = c ? `${b} ${c}` : b;
+  const r = await chamarTregHttp('treg.instagram.search.users', { q }, token);
+  if (r.erro) return { erro: r.erro };
+  const o = r.json?.output ?? r.json;
+  const lista = [o?.users, o?.results, o?.items, o?.profiles, Array.isArray(o) ? o : null].find((x) => Array.isArray(x) && x.length) || [];
+  const leads = dados.todosLeadsCompletos();
+  const vistos = new Set();
+  const resultados = lista
+    .map(normalizarPerfil)
+    .filter((x) => x.usuario && !vistos.has(x.usuario.toLowerCase()) && vistos.add(x.usuario.toLowerCase()))
+    .slice(0, Math.max(1, Math.min(60, Number(limite) || 30)))
+    .map((x) => ({
+      ...x,
+      jaEhLead: leads.some((l) => String(l.instagram || '').replace(/^@/, '').toLowerCase() === x.usuario.toLowerCase()),
+    }));
+  return { busca: q, resultados, servidoPor: r.servidoPor, custoUSD: r.custoMicro != null ? r.custoMicro / 1e6 : null };
+}
+
+// ---------------- checagem antes de abordar ----------------
+// Pedido do Jerry em 26/11: "tenha certeza que eles não tenham sites e o número ou Instagram seja realmente do lugar"
+// (2 barbearias da primeira rodada já tinham site e 1 não era do lugar). Nada é abordado sem passar aqui.
+const SEM_ACENTO = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const NAO_E_SITE = /instagram\.com|facebook\.com|fb\.com|fb\.me|google\.|goo\.gl|g\.page|wa\.me|whatsapp\.com|tiktok\.com|youtube\.com|threads\.net|x\.com|twitter\.com|kwai|ifood|guiamais|apontador|telelistas|cnpj|econodata|solutudo|encontra|yelp|tripadvisor|reclameaqui|jusbrasil|escavador|consultas?|casadosdados|empresaqui|cylex|hotfrog|waze|moovit|maps\.|doctoralia|olx|mercadolivre|shopee|bing\.com|wikipedia/i;
+const PAGINA_AGENDA = /tuaagenda|minhaagenda|agendamento|booksy|trinks|inbarber|barberapp|appbarber|avec\.|linktr\.ee|bio\.link|beacons\.ai|w\.app|linkme|lnk\.bio|hotmart|wixsite|webnode|negocio\.site|business\.site|ueniweb/i;
+const DDD_UF = { PB: ['83'], PE: ['81', '87'], RN: ['84'], CE: ['85', '88'], AL: ['82'], PI: ['86', '89'], BA: ['71', '73', '74', '75', '77'], SE: ['79'], MA: ['98', '99'] };
+
+function tokensNome(nome) {
+  const fora = new Set(['barbearia', 'barber', 'barbershop', 'shop', 'studio', 'estudio', 'salao', 'the', 'dos', 'das', 'de', 'da', 'do', 'e', 'lanchonete', 'confeitaria', 'escritorio', 'advocacia', 'advogados', 'cabeleireiro', 'barbeiro', 'ltda', 'me']);
+  return SEM_ACENTO(nome).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((t) => t.length >= 4 && !fora.has(t));
+}
+const dominio = (u) => SEM_ACENTO(String(u || '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]);
+
+/** Confere se o lead é mesmo da cidade/estado buscados e se NÃO tem site nem página própria. Custa ~US$ 0,0004 (Google). */
+export async function verificarLead({ nome, cidade, endereco, telefone, site, instagram, bio, linkBio }) {
+  const motivos = [];
+  const cid = SEM_ACENTO(String(cidade || '').replace(/\s+[A-Z]{2}$/, ''));
+  const uf = (String(cidade || '').match(/\b([A-Z]{2})$/) || [])[1];
+  // 1) lugar
+  let local = null;
+  if (endereco) {
+    local = SEM_ACENTO(endereco).includes(cid);
+    if (!local) motivos.push(`endereço fora de ${cidade}: ${endereco}`);
+  } else if (bio || nome) {
+    const t = SEM_ACENTO(`${nome} ${bio}`);
+    local = !!cid && t.includes(cid);
+    if (!local) motivos.push(`nada no nome/bio diz que é de ${cidade}`);
+  }
+  const ddd = String(telefone || '').replace(/\D/g, '').replace(/^55/, '').slice(0, 2);
+  if (telefone && uf && DDD_UF[uf] && !DDD_UF[uf].includes(ddd)) {
+    local = false;
+    motivos.push(`DDD ${ddd} não é de ${uf}`);
+  }
+  // 2a) bio que manda para link/cardápio/loja online = já vende por página própria
+  const BIO_COM_PAGINA = /link (abaixo|na bio|da bio|aba)|card[aá]pio (on-?line|no link|digital|virtual)|pedidos? (on-?line|no link|pelo link|via link|pelo site)|loja (on-?line|virtual)|nosso site|acesse o site|encomendas no link|pe[cç]a pelo link/i;
+  if (bio && BIO_COM_PAGINA.test(bio)) motivos.push('a bio manda para um link/cardápio/loja online (já tem página)');
+  // 2b) franquia: tem o site da rede
+  const FRANQUIA = /milky ?moo|bob'?s|mc ?donald|burger king|subway|cacau show|chiquinho|kopenhagen|botic[aá]rio|giraffas|spoleto|habib|china in box|ki-?sabor|sodi[eê] doces|amor aos peda[cç]os|o rei do mate|barbearia ?vip/i;
+  if (FRANQUIA.test(`${nome} ${bio}`)) motivos.push('franquia de rede (já tem o site da marca)');
+  // 2) site já conhecido (Maps / bio do Instagram)
+  let temSite = false, pagina = '';
+  for (const u of [site, linkBio].filter(Boolean)) {
+    if (PAGINA_AGENDA.test(u)) { pagina = u; }
+    else if (!NAO_E_SITE.test(u)) { temSite = true; motivos.push(`já tem site: ${u}`); }
+  }
+  if (pagina) motivos.push(`já tem página de agendamento/links: ${pagina}`);
+  // 3) Google: "<nome> <cidade>"
+  const token = dados.config().tregToken;
+  let googleChecado = false;
+  if (!temSite && !pagina && token && nome) {
+    const r = await chamarTregHttp('treg.google.serp.organic', { q: `${nome} ${String(cidade || '').replace(/\s+[A-Z]{2}$/, '')}`, country: 'br', language: 'pt', limit: 10 }, token);
+    if (!r.erro) {
+      googleChecado = true;
+      const o = r.json?.output ?? r.json;
+      const linhas = [o?.results, o?.organic, o?.organic_results, o?.items, Array.isArray(o) ? o : null].find((x) => Array.isArray(x)) || [];
+      const tk = tokensNome(nome);
+      for (const l of linhas) {
+        const url = String(l.url || l.link || l.href || '');
+        const titulo = SEM_ACENTO(l.title || l.name || '');
+        if (!url) continue;
+        const dom = dominio(url);
+        const casa = tk.length ? tk.some((t) => dom.replace(/[^a-z0-9]/g, '').includes(t) || titulo.includes(t)) : false;
+        if (!casa) continue;
+        if (PAGINA_AGENDA.test(url)) { pagina = pagina || url; continue; }
+        if (!NAO_E_SITE.test(url) && tk.some((t) => dom.replace(/[^a-z0-9]/g, '').includes(t))) {
+          temSite = true; motivos.push(`já tem site (Google): ${url}`); break;
+        }
+      }
+      if (pagina && !motivos.some((m) => m.includes(pagina))) motivos.push(`já tem página de agendamento/links (Google): ${pagina}`);
+    } else {
+      motivos.push(`não deu para checar no Google: ${r.erro}`);
+    }
+  }
+  const barrado = motivos.some((m) => /link\/card[aá]pio|franquia/.test(m));
+  const aprovado = local !== false && !temSite && !pagina && !barrado && (googleChecado || !token ? true : false);
+  return { aprovado, local, temSite, pagina, googleChecado, motivos };
+}
+
+/** Perfil público do Instagram: bio, link da bio, seguidores (para checar site e cidade). ~US$ 0,001–0,002. */
+export async function perfilInstagram(usuario) {
+  const u = String(usuario || '').replace(/^@/, '').trim();
+  if (!u) return { erro: 'informe o usuário' };
+  const token = dados.config().tregToken;
+  if (!token) return { erro: 'salve a chave do treg em Ajustes' };
+  const r = await chamarTregHttp('treg.instagram.user.profile', { username: u }, token);
+  if (r.erro) return { erro: r.erro };
+  const o = r.json?.output ?? r.json;
+  const p = o?.user || o?.profile || o?.data?.user || o?.data || o;
+  const links = Array.isArray(p?.bio_links) ? p.bio_links.map((x) => x?.url).filter(Boolean) : [];
+  return {
+    usuario: u,
+    nome: String(primeiro(p, 'full_name', 'fullName', 'name') || ''),
+    bio: String(primeiro(p, 'biography', 'bio', 'description') || '').replace(/\s+/g, ' '),
+    linkBio: String(primeiro(p, 'external_url', 'externalUrl', 'website') || links[0] || ''),
+    seguidores: Number(primeiro(p, 'follower_count', 'edge_followed_by.count', 'followers_count', 'followers')) || null,
+    categoria: String(primeiro(p, 'category_name', 'business_category_name', 'category') || ''),
+    privado: !!primeiro(p, 'is_private'),
+    empresa: !!primeiro(p, 'is_business_account', 'is_professional_account'),
+    telefone: String(primeiro(p, 'public_phone_number', 'contact_phone_number', 'business_phone_number') || ''),
+    cidadeNegocio: String(primeiro(p, 'city_name', 'business_address_json.city_name', 'address_street') || ''),
+    custoUSD: r.custoMicro != null ? r.custoMicro / 1e6 : null,
+  };
+}

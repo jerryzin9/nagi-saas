@@ -206,6 +206,60 @@ server.registerTool(
 );
 
 server.registerTool(
+  'prospectar_instagram',
+  {
+    title: 'Prospectar no Instagram',
+    description:
+      'Busca perfis públicos do Instagram por nicho e cidade (pelo treg, ~US$ 0,002 por busca). NÃO envia DM: depois de escolher, ' +
+      'confira cada um com verificar_lead (cidade e ausência de site) e prepare a DM com instagram_preparar_dm, levando o case do nicho (cases_do_nicho).',
+    inputSchema: {
+      busca: z.string().describe('nicho, ex.: "barbearia", "confeitaria", "advogado"'),
+      cidade: z.string().describe('cidade e UF, ex.: "Sousa PB"'),
+      limite: z.number().int().min(1).max(60).optional(),
+    },
+  },
+  seguro(async (a) => api('POST', '/api/prospectar-instagram', a)),
+);
+
+server.registerTool(
+  'perfil_instagram',
+  {
+    title: 'Perfil do Instagram',
+    description: 'Bio, link da bio, seguidores, categoria e telefone público de um perfil (~US$ 0,002). Use antes de abordar para ver se já tem site e de que cidade é.',
+    inputSchema: { usuario: z.string().describe('usuário sem @') },
+  },
+  seguro(async (a) => api('GET', `/api/instagram/perfil?usuario=${encodeURIComponent(a.usuario)}`)),
+);
+
+server.registerTool(
+  'verificar_lead',
+  {
+    title: 'Verificar lead antes de abordar',
+    description:
+      'OBRIGATÓRIO antes de qualquer abordagem (regra do Jerry): confere se o lead é mesmo da cidade/UF (endereço, bio, DDD) e se NÃO tem site ' +
+      'nem página de agendamento (site do Maps, link da bio e busca no Google "nome cidade", ~US$ 0,0004). Só aborde quem voltar aprovado=true.',
+    inputSchema: {
+      nome: z.string(), cidade: z.string().describe('cidade e UF, ex.: "Sousa PB"'),
+      endereco: z.string().optional(), telefone: z.string().optional(), site: z.string().optional(),
+      instagram: z.string().optional(), bio: z.string().optional(), linkBio: z.string().optional(),
+    },
+  },
+  seguro(async (a) => api('POST', '/api/verificar', a)),
+);
+
+server.registerTool(
+  'cases_do_nicho',
+  {
+    title: 'Cases do Jerry para o nicho do lead',
+    description:
+      'Trabalhos do Jerry do mesmo ramo do lead (barbearia → Luan Styles e Barbearia Hope; advocacia → Ronzinério; lanchonete → RY Burguer; ' +
+      'confeitaria → Chocosag; contabilidade → Brasileiro Contador; fotografia → Camilly França; loja → H Jóias…). Coloque o link na abordagem. Sem nicho, vem o portfólio.',
+    inputSchema: { segmento: z.string().describe('segmento, categoria ou bio do lead') },
+  },
+  seguro(async (a) => api('GET', `/api/cases/para?segmento=${encodeURIComponent(a.segmento)}`)),
+);
+
+server.registerTool(
   'metricas',
   {
     title: 'Métricas da prospecção',

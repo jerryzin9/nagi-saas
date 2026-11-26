@@ -67,21 +67,49 @@ setInterval(() => {
 }, 4000).unref();
 const marcar = () => (sujo = true);
 
-/** Contato com @lid (identificador oculto do WhatsApp): troca pelo número de telefone quando der. */
-async function jidDaConversa(idWweb, chat) {
+/** Contato com @lid (identificador oculto do WhatsApp): troca pelo número de telefone. Sem isso a resposta de um lead
+ *  não casa com o telefone dele (aconteceu em 26/11: as barbearias responderam e nenhuma virou "respondeu"). */
+const ehTelefone = (d) => /^\d{12,13}$/.test(d) && d.startsWith('55') || /^\d{10,15}$/.test(d) && !d.startsWith('2');
+async function jidDaConversa(idWweb) {
   if (!/@lid$/.test(idWweb)) return paraLoja(idWweb);
   if (loja.lidPn[idWweb]) return loja.lidPn[idWweb];
+  const lidDigitos = idWweb.split('@')[0];
   try {
-    const ct = await (chat?.getContact ? chat.getContact() : cliente.getContactById(idWweb));
-    const num = ct?.number || ct?.id?.user;
-    if (num && /^\d{10,15}$/.test(num)) {
+    const [r] = (await cliente.getContactLidAndPhone([idWweb])) || [];
+    const pn = String(r?.pn || '').split('@')[0];
+    if (pn && pn !== lidDigitos && /^\d{10,15}$/.test(pn)) {
+      loja.lidPn[idWweb] = `${pn}@s.whatsapp.net`;
+      marcar();
+      return loja.lidPn[idWweb];
+    }
+  } catch {}
+  try {
+    const ct = await cliente.getContactById(idWweb);
+    const num = String(ct?.number || '');
+    if (num && num !== lidDigitos && ehTelefone(num)) {
       loja.lidPn[idWweb] = `${num}@s.whatsapp.net`;
       marcar();
       return loja.lidPn[idWweb];
     }
   } catch {}
-  return idWweb;
+  return idWweb; // sem número conhecido: fica como @lid (nunca vira "telefone" falso)
 }
+
+/** Limpa conversas gravadas com o código LID no lugar do telefone (bug de 26/11). */
+function limparLidsComoTelefone() {
+  let n = 0;
+  for (const jid of Object.keys(loja.conversas)) {
+    const d = jid.split('@')[0];
+    if (/@s\.whatsapp\.net$/.test(jid) && /^\d{14,15}$/.test(d) && !d.startsWith('55')) {
+      delete loja.conversas[jid];
+      delete loja.mensagens[jid];
+      delete loja.nomes[jid];
+      n++;
+    }
+  }
+  if (n) { marcar(); logWa(`limpei ${n} conversas gravadas com LID no lugar do telefone`); }
+}
+limparLidsComoTelefone();
 
 export function textoDaMensagem(m) {
   if (!m) return '';

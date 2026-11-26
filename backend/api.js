@@ -5,7 +5,8 @@
 import * as wa from './whatsapp.js';
 import * as envio from './envio.js';
 import * as dados from './dados.js';
-import { prospectarMaps } from './prospectar.js';
+import { prospectarMaps, prospectarInstagram, verificarLead, perfilInstagram } from './prospectar.js';
+import { mapaPublico, casesPara, linhaDeCase } from './cases.js';
 
 function enviarJSON(res, codigo, obj) {
   const corpo = JSON.stringify(obj);
@@ -169,6 +170,16 @@ rota('POST', '/api/instagram/rascunho', (_q, c) => {
     throw codigo(400, e.message);
   }
 });
+rota('DELETE', '/api/instagram/rascunho/:id', (_q, _c, p) => {
+  const r = dados.apagarRascunhoInstagram(p.id);
+  if (!r) throw codigo(404, 'rascunho não encontrado');
+  return r;
+});
+rota('PATCH', '/api/instagram/rascunho/:id', (_q, c, p) => {
+  const r = dados.editarRascunhoInstagram(p.id, c?.texto);
+  if (!r) throw codigo(404, 'rascunho não encontrado');
+  return r;
+});
 rota('POST', '/api/instagram/rascunho/:id/feito', (_q, _c, p) => {
   const r = dados.marcarRascunhoFeito(p.id);
   if (!r) throw codigo(404, 'rascunho não encontrado');
@@ -176,6 +187,15 @@ rota('POST', '/api/instagram/rascunho/:id/feito', (_q, _c, p) => {
 });
 
 // ---------------- prospecção (treg CLI) e métricas ----------------
+rota('POST', '/api/prospectar-instagram', async (_q, c) => {
+  const r = await prospectarInstagram({ busca: c.busca, cidade: c.cidade, limite: c.limite });
+  if (r.erro) return { erro: r.erro };
+  return r;
+});
+rota('GET', '/api/instagram/perfil', async (q) => perfilInstagram(q.get('usuario')));
+rota('POST', '/api/verificar', async (_q, c) => verificarLead(c || {}));
+rota('GET', '/api/cases', () => mapaPublico());
+rota('GET', '/api/cases/para', (q) => ({ ...casesPara(q.get('segmento'), q.get('nome'), q.get('bio')), linha: linhaDeCase(q.get('segmento'), q.get('nome'), q.get('bio')) }));
 rota('POST', '/api/prospectar', async (_q, c) => {
   const r = await prospectarMaps({ busca: c.busca, cidade: c.cidade, limite: c.limite });
   if (r.erro) throw codigo(502, r.erro);
