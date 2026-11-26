@@ -3,744 +3,193 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NAGI 凪 — SaaS de Prospecção Treg, Robô & Estúdio de Landing Pages</title>
-  <meta name="description" content="Plataforma SaaS para desenvolvedores freelancers: prospecção integrada ao Treg, robô de abordagem, dashboard de vendas e gerador de Landing Pages & n8n." />
-
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            abyss: '#040914',
-            indigoDeep: '#091529',
-            washi: '#f4efe6',
-            kintsugi: '#f5b942',
-            vermilion: '#e11d48'
-          }
-        }
-      }
-    }
-  </script>
-
-  <!-- Three.js (3D WebGL Ocean), Chart.js, Lucide Icons -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-
-  <link rel="stylesheet" href="styles.css?v=kanagawa3" />
+  <title>Nagi 凪</title>
+  <meta name="description" content="Nagi — painel pessoal de prospecção do Jerry: leads, WhatsApp, Instagram e estúdio de páginas." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b8322a'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' fill='%23f4efe6' font-family='serif'%3E%E5%87%AA%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Shippori+Mincho+B1:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
-<body class="min-h-screen text-slate-100 antialiased">
+<body class="tela-painel">
+  <canvas id="mar" aria-hidden="true"></canvas>
+  <div class="veu" aria-hidden="true"></div>
 
-  <!-- 3D Living Japanese Ocean Canvas -->
-  <canvas id="nagi-canvas"></canvas>
-  <div class="seigaiha-overlay"></div>
+  <div id="aviso-servidor" class="aviso-servidor" hidden>
+    <strong>O servidor do Nagi está desligado.</strong> Abra a pasta do Nagi e rode <code>npm start</code>; esta tela volta sozinha.
+  </div>
 
-  <!-- Toast Host -->
-  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm"></div>
-
-  <!-- ==================== LOGIN / ONBOARDING SCREEN ==================== -->
-  <section id="auth-screen" class="relative z-10 min-h-screen flex items-center justify-center p-4 sm:p-8">
-    <div class="max-w-5xl w-full grid lg:grid-cols-12 gap-8 items-center">
-
-      <!-- Left: Editorial Japanese Brand Hero -->
-      <div class="lg:col-span-6 space-y-6">
-        <div class="inline-flex items-center gap-3 px-3.5 py-1.5 rounded-full bg-slate-900/75 border border-teal-400/30 backdrop-blur-md">
-          <span class="relative w-2 h-2 rounded-full bg-teal-400 live-dot"></span>
-          <span class="text-xs font-semibold tracking-wide text-teal-200">SaaS para Devs Freelancers • Gateway Treg.to</span>
-        </div>
-
-        <div class="flex items-center gap-4">
-          <div class="hanko-seal w-14 h-14 text-2xl shrink-0">凪</div>
-          <div>
-            <h1 class="font-display text-4xl sm:text-5xl font-extrabold tracking-wider text-washi">
-              NAGI <span class="text-teal-300 font-jp text-2xl sm:text-3xl font-normal">波の匠</span>
-            </h1>
-            <p class="text-xs sm:text-sm uppercase tracking-[0.25em] text-amber-300/90 mt-1">
-              Prospecção • Automação • Landing Pages
-            </p>
-          </div>
-        </div>
-
-        <p class="text-slate-300 text-sm sm:text-base leading-relaxed">
-          Domine as ondas da prospecção freelancer. Encontre empresas com o gateway <strong class="text-teal-300">Treg</strong>, aborde decisores com robô e scripts prontos, gere <strong class="text-amber-300">Landing Pages & fluxos n8n</strong> na hora e acompanhe cada real vendido no seu painel.
-        </p>
-
-        <div class="grid sm:grid-cols-3 gap-3 pt-2">
-          <div class="nagi-card tilt-card rounded-2xl p-4">
-            <p class="font-jp text-lg text-teal-300 mb-1">開拓</p>
-            <p class="font-bold text-xs text-white">Prospecção Treg</p>
-            <p class="text-[11px] text-slate-400 mt-0.5">Empresas & decisores por nicho e cidade</p>
-          </div>
-          <div class="nagi-card tilt-card rounded-2xl p-4">
-            <p class="font-jp text-lg text-amber-300 mb-1">対話</p>
-            <p class="font-bold text-xs text-white">Robô & Scripts</p>
-            <p class="text-[11px] text-slate-400 mt-0.5">Abordagem contextual direto no WhatsApp</p>
-          </div>
-          <div class="nagi-card tilt-card rounded-2xl p-4">
-            <p class="font-jp text-lg text-rose-400 mb-1">創造</p>
-            <p class="font-bold text-xs text-white">Estúdio LP + n8n</p>
-            <p class="text-[11px] text-slate-400 mt-0.5">Prompts prontos & preview ao vivo</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: Glass Shoji Login Card -->
-      <div class="lg:col-span-6">
-        <div class="nagi-card tilt-card rounded-3xl p-6 sm:p-8 border border-sky-400/20">
-          <div class="flex items-center justify-between mb-6">
-            <div class="flex gap-2 p-1 rounded-xl bg-slate-950/70 border border-white/10">
-              <button id="tab-auth-login" type="button" class="px-4 py-1.5 rounded-lg text-xs font-bold border bg-teal-400/20 text-teal-300 border-teal-400/40 transition">
-                Entrar
-              </button>
-              <button id="tab-auth-register" type="button" class="px-4 py-1.5 rounded-lg text-xs font-bold border border-transparent text-slate-300 hover:text-white transition">
-                Criar Conta Dev
-              </button>
-            </div>
-            <span class="font-jp text-xs text-slate-400">ログイン</span>
-          </div>
-
-          <form id="auth-form" class="space-y-4">
-            <div id="register-extra-fields" class="hidden space-y-4">
-              <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Seu Nome / Estúdio</label>
-                <input id="auth-name" type="text" placeholder="Ex: Kenji Studio Dev" class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Especialidade Principal</label>
-                <select id="auth-specialty" class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm">
-                  <option value="Landing Pages & Automações n8n">Landing Pages & Automações n8n</option>
-                  <option value="Sites de Alta Conversão">Sites de Alta Conversão</option>
-                  <option value="Agentes IA & Bots WhatsApp">Agentes IA & Bots WhatsApp</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label class="block text-xs font-semibold text-slate-300 mb-1.5">E-mail</label>
-              <input id="auth-email" type="email" required placeholder="voce@seudominio.com" value="dev@nagi.studio" class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm" />
-            </div>
-
-            <div>
-              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Senha</label>
-              <input id="auth-password" type="password" required value="nagi2026" class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm" />
-            </div>
-
-            <div class="pt-2 border-t border-white/10">
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-semibold text-teal-300 flex items-center gap-1.5">
-                  <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Token Treg.to (Opcional)
-                </label>
-                <a href="https://treg.to" target="_blank" class="text-[11px] text-sky-300 hover:underline">Obter em treg.to ↗</a>
-              </div>
-              <input id="auth-treg-token" type="password" placeholder="X-Treg-Token (deixe vazio para Modo Sandbox)" class="nagi-input w-full rounded-xl px-4 py-2.5 text-xs font-mono-code" />
-            </div>
-
-            <button id="auth-submit-btn" type="submit" class="btn-wave w-full py-3 rounded-xl text-sm flex items-center justify-center gap-2">
-              <i data-lucide="waves" class="w-4 h-4"></i> Entrar no Nagi SaaS
-            </button>
-          </form>
-
-          <div class="kintsugi-line my-5"></div>
-
-          <button id="auth-demo-btn" type="button" class="w-full py-2.5 rounded-xl text-xs font-semibold bg-slate-900/80 hover:bg-slate-800 border border-amber-400/30 text-amber-200 flex items-center justify-center gap-2 transition">
-            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i> Acesso Rápido Demo (Pipeline & Treg Sandbox Prontos)
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ==================== MAIN SAAS SHELL ==================== -->
-  <div id="app-shell" class="hidden relative z-10 min-h-screen flex">
-
-    <!-- Desktop Sidebar -->
-    <aside class="hidden lg:flex w-72 shrink-0 flex-col justify-between p-5 border-r border-sky-400/15 bg-slate-950/70 backdrop-blur-xl sticky top-0 h-screen">
+  <aside class="lateral">
+    <div class="marca">
+      <div class="hanko">凪</div>
       <div>
-        <!-- Brand -->
-        <div class="flex items-center gap-3 px-2 mb-8">
-          <div class="hanko-seal w-10 h-10 text-lg">凪</div>
-          <div>
-            <p class="font-display text-xl font-extrabold tracking-wider text-washi leading-none">NAGI</p>
-            <p class="text-[10px] tracking-[0.2em] text-teal-300 uppercase mt-1">Freelancer OS</p>
-          </div>
-        </div>
-
-        <!-- Nav Links -->
-        <nav class="space-y-1.5">
-          <button data-nav="dashboard" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5">
-            <i data-lucide="layout-dashboard" class="w-4 h-4 text-teal-300"></i>
-            <span>Dashboard & Métricas</span>
-          </button>
-          <button data-nav="prospecting" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5">
-            <i data-lucide="radar" class="w-4 h-4 text-sky-300"></i>
-            <span>Prospecção (Treg)</span>
-          </button>
-          <button data-nav="leads" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5">
-            <i data-lucide="bot" class="w-4 h-4 text-amber-300"></i>
-            <span>Meus Leads & Robô</span>
-          </button>
-          <button data-nav="studio" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-transparent text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5">
-            <i data-lucide="sparkles" class="w-4 h-4 text-rose-400"></i>
-            <span>Prompts & Gerador LP</span>
-          </button>
-        </nav>
-
-        <div class="kintsugi-line my-6"></div>
-
-        <!-- Treg Quick Card -->
-        <div class="p-4 rounded-2xl bg-slate-900/75 border border-sky-400/20 space-y-2.5">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-white">Gateway Treg.to</span>
-            <span class="font-jp text-xs text-teal-300">連携</span>
-          </div>
-          <p class="text-[11px] text-slate-400 leading-relaxed">
-            Conecte sua chave <code class="text-teal-300">X-Treg-Token</code> para consultas reais pay-per-call.
-          </p>
-          <button id="open-treg-settings" class="w-full py-2 rounded-xl text-xs font-semibold bg-sky-500/15 text-sky-200 border border-sky-400/30 hover:bg-sky-500/25 transition">
-            Configurar Integração
-          </button>
-        </div>
+        <p class="marca-nome">NAGI</p>
+        <p class="marca-sub">mar calmo, rede cheia</p>
       </div>
-
-      <!-- User Footer -->
-      <div class="pt-4 border-t border-white/10 flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div id="user-avatar-letter" class="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-sky-500 text-slate-950 font-extrabold flex items-center justify-center text-sm shrink-0">K</div>
-          <div class="min-w-0">
-            <p id="user-name-label" class="text-xs font-bold text-white truncate">Kenji Dev</p>
-            <p id="user-role-label" class="text-[10px] text-slate-400 truncate">Landing Pages & n8n</p>
-          </div>
-        </div>
-        <button id="logout-btn" title="Sair" class="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition">
-          <i data-lucide="log-out" class="w-4 h-4"></i>
-        </button>
-      </div>
-    </aside>
-
-    <!-- Mobile Sidebar Drawer -->
-    <div id="mobile-sidebar" class="lg:hidden fixed inset-y-0 left-0 z-40 w-72 bg-slate-950/95 backdrop-blur-xl border-r border-white/10 p-5 transform -translate-x-full transition-transform duration-300">
-      <div class="flex items-center justify-between mb-6">
-        <div class="flex items-center gap-2.5">
-          <div class="hanko-seal w-9 h-9 text-base">凪</div>
-          <span class="font-display text-lg font-extrabold text-washi">NAGI</span>
-        </div>
-        <button id="close-mobile-sidebar" class="p-2 text-slate-400 hover:text-white">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-      <nav class="space-y-2">
-        <button data-nav="dashboard" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200">
-          <i data-lucide="layout-dashboard" class="w-4 h-4 text-teal-300"></i> Dashboard & Métricas
-        </button>
-        <button data-nav="prospecting" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200">
-          <i data-lucide="radar" class="w-4 h-4 text-sky-300"></i> Prospecção (Treg)
-        </button>
-        <button data-nav="leads" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200">
-          <i data-lucide="bot" class="w-4 h-4 text-amber-300"></i> Meus Leads & Robô
-        </button>
-        <button data-nav="studio" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-200">
-          <i data-lucide="sparkles" class="w-4 h-4 text-rose-400"></i> Prompts & Gerador LP
-        </button>
-      </nav>
     </div>
 
-    <!-- Main Content Area -->
-    <main class="flex-1 min-w-0 flex flex-col">
+    <nav class="menu" id="menu">
+      <button data-tela="painel" class="ativo"><span class="kanji">凪</span><i data-lucide="waves"></i><span>Painel</span></button>
+      <button data-tela="prospectar"><span class="kanji">開</span><i data-lucide="radar"></i><span>Prospectar</span></button>
+      <button data-tela="leads"><span class="kanji">縁</span><i data-lucide="kanban-square"></i><span>Leads</span><em id="badge-leads"></em></button>
+      <button data-tela="whatsapp"><span class="kanji">話</span><i data-lucide="message-circle"></i><span>WhatsApp</span><em id="badge-wa"></em></button>
+      <button data-tela="fila"><span class="kanji">待</span><i data-lucide="list-checks"></i><span>Fila de envio</span><em id="badge-fila"></em></button>
+      <button data-tela="instagram"><span class="kanji">写</span><i data-lucide="instagram"></i><span>Instagram</span><em id="badge-ig"></em></button>
+      <button data-tela="estudio"><span class="kanji">創</span><i data-lucide="sparkles"></i><span>Estúdio</span></button>
+      <button data-tela="ajustes"><span class="kanji">設</span><i data-lucide="sliders-horizontal"></i><span>Ajustes</span></button>
+    </nav>
 
-      <!-- Top Header Bar -->
-      <header class="sticky top-0 z-20 px-4 sm:px-8 py-3.5 border-b border-white/10 bg-slate-950/60 backdrop-blur-xl flex items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <button id="mobile-menu-btn" class="lg:hidden p-2 rounded-xl bg-slate-900 border border-white/10 text-slate-200">
-            <i data-lucide="menu" class="w-5 h-5"></i>
-          </button>
-          <div>
-            <p class="text-xs text-slate-400 hidden sm:block">Calmaria estratégica no topo da onda • <span class="font-jp text-teal-300">凪の境地</span></p>
+    <div class="lateral-rodape">
+      <div class="status-wa" id="status-wa-lateral">
+        <span class="ponto"></span>
+        <div><p class="t1">WhatsApp</p><p class="t2">verificando…</p></div>
+      </div>
+      <p class="cota" id="cota-lateral"></p>
+    </div>
+  </aside>
+
+  <main class="conteudo">
+    <!-- PAINEL -->
+    <section class="tela" id="tela-painel">
+      <div class="hero">
+        <img class="hero-onda" src="assets/onda/onda-azul.webp?v=3" alt="A Grande Onda de Kanagawa, de Hokusai, em tons de azul" />
+        <div class="hero-texto">
+          <p class="hero-jp" id="hero-jp">こんばんは</p>
+          <h1 id="hero-saudacao">Boa noite, Jerry</h1>
+          <p class="hero-frase" id="hero-frase">Carregando o mar…</p>
+          <div class="hero-acoes">
+            <button class="btn btn-claro" data-ir="prospectar"><i data-lucide="radar"></i>Nova prospecção</button>
+            <button class="btn btn-vidro" data-ir="fila"><i data-lucide="list-checks"></i>Ver a fila</button>
           </div>
         </div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="grade-2">
+        <div class="cartao">
+          <div class="cartao-topo"><h2>Envios e respostas</h2><span class="dica">últimos 14 dias</span></div>
+          <div class="grafico"><canvas id="graf-envios"></canvas></div>
+        </div>
+        <div class="cartao">
+          <div class="cartao-topo"><h2>Funil</h2><span class="dica">leads por etapa</span></div>
+          <div id="funil"></div>
+        </div>
+      </div>
+      <div class="cartao">
+        <div class="cartao-topo"><h2>Próximas ações</h2><span class="dica">o que pede você agora</span></div>
+        <div id="proximas"></div>
+      </div>
+      <p class="credito">A onda: Katsushika Hokusai, <em>Sob a onda ao largo de Kanagawa</em>, c. 1831 · The Met, domínio público</p>
+    </section>
 
-        <div class="flex items-center gap-3">
-          <button id="treg-status-pill" type="button"></button>
+    <!-- PROSPECTAR -->
+    <section class="tela" id="tela-prospectar" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">開拓</p><h1>Prospectar</h1><p class="sub">Empresas reais do Google Maps (pelo treg), com telefone, site e nota. Nada é inventado: o que não vier fica em branco.</p></div>
+      </header>
+      <form class="cartao form-busca" id="form-prospectar">
+        <label>O que procurar<input name="busca" required placeholder="ex.: barbearia, clínica odontológica, imobiliária" /></label>
+        <label>Cidade<input name="cidade" required placeholder="ex.: Cajazeiras PB" /></label>
+        <button class="btn btn-claro" type="submit"><i data-lucide="search"></i>Buscar</button>
+        <p class="dica">cada busca custa uns US$ 0,002 no treg (precisa de saldo na conta)</p>
+      </form>
+      <div class="cartao" id="resultados-prospeccao" hidden></div>
+    </section>
+
+    <!-- LEADS -->
+    <section class="tela" id="tela-leads" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">縁</p><h1>Leads</h1><p class="sub">Cada lead da prospecção até o fechamento. Clique para abrir, arraste entre as etapas.</p></div>
+        <div class="tela-acoes">
+          <input class="busca" id="busca-leads" placeholder="Buscar nome, cidade, segmento…" />
+          <button class="btn btn-vidro" id="btn-importar"><i data-lucide="clipboard-paste"></i>Importar</button>
+          <button class="btn btn-claro" id="btn-novo-lead"><i data-lucide="plus"></i>Novo lead</button>
         </div>
       </header>
+      <div class="kanban" id="kanban"></div>
+    </section>
 
-      <!-- Views Container -->
-      <div class="p-4 sm:p-8 max-w-[1440px] w-full mx-auto space-y-6">
-
-        <!-- ==================== VIEW 1: DASHBOARD ==================== -->
-        <section id="view-dashboard" class="view-section active space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-              <span class="text-xs font-bold uppercase tracking-widest text-teal-300">Painel do Desenvolvedor</span>
-              <h2 class="font-display text-2xl sm:text-3xl font-extrabold text-washi mt-1">
-                Dashboard de Prospecção & Vendas
-              </h2>
-            </div>
-            <div class="flex flex-wrap gap-2.5">
-              <button id="quick-go-prospect" class="btn-wave px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
-                <i data-lucide="radar" class="w-4 h-4"></i> Nova Prospecção Treg
-              </button>
-              <button id="quick-go-studio" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-900/90 border border-amber-400/35 text-amber-200 hover:bg-slate-800 flex items-center gap-2 transition">
-                <i data-lucide="sparkles" class="w-4 h-4"></i> Criar LP / n8n
-              </button>
-            </div>
-          </div>
-
-          <!-- KPI Grid -->
-          <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <div class="nagi-card tilt-card rounded-2xl p-4 sm:p-5">
-              <div class="flex items-center justify-between gap-2 text-slate-400 text-xs mb-2">
-                <span>Prospectados</span>
-                <i data-lucide="users" class="w-4 h-4 text-sky-400 shrink-0"></i>
-              </div>
-              <p id="kpi-prospected" class="text-2xl sm:text-3xl font-extrabold text-white">0</p>
-              <p class="text-[11px] text-teal-300 mt-1">Via Treg & Pipeline</p>
-            </div>
-
-            <div class="nagi-card tilt-card rounded-2xl p-4 sm:p-5">
-              <div class="flex items-center justify-between text-slate-400 text-xs mb-2">
-                <span>Abordagens Robô</span>
-                <i data-lucide="message-square-text" class="w-4 h-4 text-teal-400"></i>
-              </div>
-              <p id="kpi-messages" class="text-2xl sm:text-3xl font-extrabold text-white">0</p>
-              <p class="text-[11px] text-slate-400 mt-1">Scripts & WhatsApp</p>
-            </div>
-
-            <div class="nagi-card tilt-card rounded-2xl p-4 sm:p-5">
-              <div class="flex items-center justify-between text-slate-400 text-xs mb-2">
-                <span>LPs Vendidas</span>
-                <i data-lucide="layout-template" class="w-4 h-4 text-amber-400"></i>
-              </div>
-              <p id="kpi-lp-sold" class="text-2xl sm:text-3xl font-extrabold text-amber-300">0</p>
-              <p class="text-[11px] text-slate-400 mt-1">Landing Pages</p>
-            </div>
-
-            <div class="nagi-card tilt-card rounded-2xl p-4 sm:p-5">
-              <div class="flex items-center justify-between text-slate-400 text-xs mb-2">
-                <span>Automações n8n</span>
-                <i data-lucide="workflow" class="w-4 h-4 text-rose-400"></i>
-              </div>
-              <p id="kpi-auto-sold" class="text-2xl sm:text-3xl font-extrabold text-rose-300">0</p>
-              <p class="text-[11px] text-slate-400 mt-1">Bots & Fluxos IA</p>
-            </div>
-
-            <div class="col-span-2 lg:col-span-1 nagi-card tilt-card rounded-2xl p-4 sm:p-5 border-amber-400/30">
-              <div class="flex items-center justify-between text-slate-400 text-xs mb-2">
-                <span>Faturamento</span>
-                <i data-lucide="coins" class="w-4 h-4 text-amber-400"></i>
-              </div>
-              <p id="kpi-revenue" class="text-xl sm:text-2xl font-extrabold text-emerald-300">R$ 0</p>
-              <p id="kpi-pipeline" class="text-[11px] text-amber-200/80 mt-1">R$ 0 em aberto</p>
-            </div>
-          </div>
-
-          <!-- Goal Bar -->
-          <div class="nagi-card rounded-2xl p-4 sm:p-5">
-            <div class="flex items-center justify-between text-xs mb-2">
-              <span class="font-bold text-washi flex items-center gap-2">
-                <span class="font-jp text-amber-300">目標</span> Meta Mensal de Faturamento
-              </span>
-              <span id="goal-progress-label" class="text-teal-300 font-semibold">0%</span>
-            </div>
-            <div class="w-full h-2.5 rounded-full bg-slate-900 overflow-hidden border border-white/10">
-              <div id="goal-progress-bar" class="h-full rounded-full bg-gradient-to-r from-teal-400 via-sky-400 to-amber-400 transition-all duration-700" style="width: 30%"></div>
-            </div>
-          </div>
-
-          <!-- Charts + Activity -->
-          <div class="grid lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-7 nagi-card rounded-2xl p-5">
-              <h3 class="font-bold text-sm text-white mb-4 flex items-center justify-between">
-                <span>Ritmo das Ondas — Prospecções vs. Conversões</span>
-                <span class="text-[11px] text-slate-400 font-normal">Últimos 7 dias</span>
-              </h3>
-              <div class="h-64">
-                <canvas id="chart-wave-metrics"></canvas>
-              </div>
-            </div>
-
-            <div class="lg:col-span-5 nagi-card rounded-2xl p-5">
-              <h3 class="font-bold text-sm text-white mb-4">Distribuição por Segmento</h3>
-              <div class="h-64">
-                <canvas id="chart-segments"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <div class="nagi-card rounded-2xl p-5">
-            <h3 class="font-bold text-sm text-white mb-3">Atividade Recente</h3>
-            <div id="dashboard-activity-feed" class="grid md:grid-cols-2 gap-3"></div>
-          </div>
-        </section>
-
-        <!-- ==================== VIEW 2: PROSPECTING (TREG) ==================== -->
-        <section id="view-prospecting" class="view-section space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-              <span class="text-xs font-bold uppercase tracking-widest text-sky-300">Gateway Unificado treg.to</span>
-              <h2 class="font-display text-2xl sm:text-3xl font-extrabold text-washi mt-1">
-                Radar de Prospecção Inteligente
-              </h2>
-            </div>
-            <button id="btn-fetch-treg-catalog" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900/90 border border-sky-400/35 text-sky-200 hover:bg-slate-800 flex items-center gap-2 transition">
-              <i data-lucide="book-open" class="w-4 h-4"></i> Explorar Catálogo Real Treg.to
-            </button>
-          </div>
-
-          <!-- Search Card -->
-          <form id="prospect-form" class="nagi-card rounded-2xl p-5 sm:p-6 space-y-4">
-            <div class="flex flex-wrap gap-2 items-center">
-              <span class="text-xs text-slate-400 mr-1">Nichos rápidos:</span>
-              <button type="button" data-niche="Churrascaria" class="niche-chip px-3 py-1 rounded-full text-xs bg-amber-500/15 text-amber-200 border border-amber-400/30 hover:bg-amber-500/25 transition">🔥 Churrascaria</button>
-              <button type="button" data-niche="Clínica Odontológica" class="niche-chip px-3 py-1 rounded-full text-xs bg-teal-500/15 text-teal-200 border border-teal-400/30 hover:bg-teal-500/25 transition">🦷 Clínica Odonto</button>
-              <button type="button" data-niche="Barbearia" class="niche-chip px-3 py-1 rounded-full text-xs bg-sky-500/15 text-sky-200 border border-sky-400/30 hover:bg-sky-500/25 transition">💈 Barbearia</button>
-              <button type="button" data-niche="Imobiliária" class="niche-chip px-3 py-1 rounded-full text-xs bg-indigo-500/15 text-indigo-200 border border-indigo-400/30 hover:bg-indigo-500/25 transition">🏢 Imobiliária</button>
-              <button type="button" data-niche="Hamburgueria" class="niche-chip px-3 py-1 rounded-full text-xs bg-rose-500/15 text-rose-200 border border-rose-400/30 hover:bg-rose-500/25 transition">🍔 Hamburgueria</button>
-            </div>
-
-            <div class="grid md:grid-cols-12 gap-4">
-              <div class="md:col-span-4">
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Segmento / Nicho Alvo</label>
-                <input id="prospect-niche" type="text" value="Churrascaria" placeholder="Ex: Churrascaria, Clínica..." class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm" />
-              </div>
-              <div class="md:col-span-3">
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Cidade / Região</label>
-                <input id="prospect-city" type="text" value="São Paulo, SP" placeholder="Ex: Curitiba, PR" class="nagi-input w-full rounded-xl px-4 py-2.5 text-sm" />
-              </div>
-              <div class="md:col-span-3">
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Endpoint Treg</label>
-                <select id="treg-endpoint-select" class="nagi-input w-full rounded-xl px-3 py-2.5 text-xs"></select>
-              </div>
-              <div class="md:col-span-2">
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Qtd. Leads</label>
-                <select id="prospect-limit" class="nagi-input w-full rounded-xl px-3 py-2.5 text-sm">
-                  <option value="6" selected>6 leads</option>
-                  <option value="9">9 leads</option>
-                  <option value="12">12 leads</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-              <p class="text-xs text-slate-400">
-                Usa <code class="text-teal-300">POST https://treg.to/call/{endpoint}</code> com cabeçalho <code class="text-amber-300">X-Treg-Token</code> (ou Sandbox realista).
-              </p>
-              <button id="btn-run-prospect" type="submit" class="btn-wave px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2">
-                <i data-lucide="radar" class="w-4 h-4"></i> Prospectar via Treg
-              </button>
-            </div>
-          </form>
-
-          <!-- Live Treg Catalog Explorer Output -->
-          <div id="treg-catalog-results" class="hidden nagi-card rounded-2xl p-4"></div>
-
-          <!-- 3D Brazil & States Globe + Treg Console -->
-          <div class="grid lg:grid-cols-12 gap-6 items-stretch">
-            <!-- Realistic 3D Globe Stage -->
-            <div class="lg:col-span-7 nagi-card rounded-2xl p-3 sm:p-4 border-teal-400/25 relative overflow-hidden flex flex-col">
-              <div class="flex items-center justify-between gap-2 mb-2 relative z-10">
-                <div class="flex items-center gap-2">
-                  <span class="relative w-2 h-2 rounded-full bg-teal-400 live-dot"></span>
-                  <span class="text-[11px] font-bold uppercase tracking-wider text-teal-300">Globo 3D Brasil • 27 Estados (Arraste para girar)</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span id="globe-scan-badge" class="hidden px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-400/40 animate-pulse">
-                    Varredura Ativa
-                  </span>
-                  <button id="btn-focus-brazil" type="button" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-900/90 border border-sky-400/30 text-sky-200 hover:bg-slate-800 transition">
-                    Focar Brasil
-                  </button>
-                </div>
-              </div>
-
-              <!-- 3D WebGL Globe Mount + UF Labels -->
-              <div class="relative w-full h-[380px] sm:h-[430px] rounded-xl overflow-hidden bg-slate-950/95 border border-white/10">
-                <div id="brazil-globe-canvas" class="w-full h-full"></div>
-                <div id="globe-uf-labels" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
-
-                <!-- Orbital HUD Overlay -->
-                <div class="absolute bottom-2.5 left-2.5 right-2.5 pointer-events-none flex flex-col gap-1.5 bg-slate-950/75 backdrop-blur-md border border-teal-400/25 rounded-xl px-3 py-2">
-                  <div class="flex items-center justify-between gap-2 text-[11px]">
-                    <span id="globe-hud-status" class="font-semibold text-teal-200">Satélite Nagi • Brasil (27 UFs)</span>
-                    <span id="globe-hud-coords" class="font-mono-code text-amber-300 shrink-0">-14.50° S, -51.50° W</span>
-                  </div>
-                  <div class="w-full h-1.5 rounded-full bg-slate-900 overflow-hidden">
-                    <div id="globe-hud-progress" class="h-full rounded-full bg-gradient-to-r from-teal-400 via-sky-400 to-amber-400 transition-all duration-300" style="width: 0%"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Terminal Log & Live Radar -->
-            <div class="lg:col-span-5 nagi-card rounded-2xl p-4 border-sky-400/20 flex flex-col justify-between gap-3">
-              <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-teal-300 flex items-center gap-2">
-                  <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Console Treg Gateway
-                </span>
-                <button id="btn-save-all-discovered" class="hidden px-3 py-1 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-200 border border-emerald-400/35 hover:bg-emerald-500/30 transition">
-                  Salvar Todos no Pipeline
-                </button>
-              </div>
-              <pre id="treg-terminal-log" class="flex-1 font-mono-code text-[11px] text-slate-300 bg-slate-950/85 p-3.5 rounded-xl border border-white/5 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all min-h-[280px] max-h-[360px]">Aguardando comando de prospecção...</pre>
-              <div class="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-400 flex items-center justify-between">
-                <span>Roteamento multi-provedor Treg</span>
-                <span class="text-amber-300 font-semibold">Pay-per-call ativo</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Discovered Leads Grid -->
-          <div id="discovered-leads-grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
-        </section>
-
-        <!-- ==================== VIEW 3: MEUS LEADS & ROBÔ ==================== -->
-        <section id="view-leads" class="view-section space-y-6">
-          <div>
-            <span class="text-xs font-bold uppercase tracking-widest text-amber-300">CRM + Automação de Abordagem</span>
-            <h2 class="font-display text-2xl sm:text-3xl font-extrabold text-washi mt-1">
-              Leads Prospectados & Robô de Mensagens
-            </h2>
-          </div>
-
-          <div class="grid lg:grid-cols-12 gap-6 items-start">
-            <!-- Left: Filterable Lead List -->
-            <div class="lg:col-span-5 nagi-card rounded-2xl p-4 space-y-3">
-              <input id="leads-search" type="text" placeholder="Buscar empresa, dono ou cidade..." class="nagi-input w-full rounded-xl px-3.5 py-2 text-xs" />
-              <div class="grid grid-cols-2 gap-2">
-                <select id="leads-filter-segment" class="nagi-input h-[36px] truncate rounded-xl px-3 text-xs"></select>
-                <select id="leads-filter-status" class="nagi-input h-[36px] truncate rounded-xl px-3 text-xs">
-                  <option value="">Todos Status</option>
-                  <option value="Novo">Novo</option>
-                  <option value="Contatado">Contatado</option>
-                  <option value="Respondeu">Respondeu</option>
-                  <option value="Proposta">Proposta</option>
-                  <option value="Vendido - LP">Vendido - LP</option>
-                  <option value="Vendido - Automação">Vendido - Automação</option>
-                  <option value="Vendido - LP + Automação">Vendido - LP + Automação</option>
-                </select>
-              </div>
-              <div id="leads-list-container" class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1"></div>
-            </div>
-
-            <!-- Right: Selected Lead Detail & Robô/Chat -->
-            <div class="lg:col-span-7 nagi-card rounded-2xl p-5 sm:p-6 space-y-5">
-              <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-white/10">
-                <div>
-                  <h3 id="detail-company" class="text-xl font-extrabold text-white">—</h3>
-                  <p id="detail-meta" class="text-xs text-teal-300 mt-0.5">—</p>
-                  <p id="detail-contact" class="text-xs text-slate-400 mt-1">—</p>
-                </div>
-                <div class="flex flex-col sm:items-end gap-2">
-                  <select id="lead-status-select" class="nagi-input rounded-xl px-3 py-1.5 text-xs font-bold text-amber-200">
-                    <option value="Novo">Status: Novo</option>
-                    <option value="Contatado">Status: Contatado</option>
-                    <option value="Respondeu">Status: Respondeu</option>
-                    <option value="Proposta">Status: Proposta</option>
-                    <option value="Vendido - LP">🏆 Vendido - LP</option>
-                    <option value="Vendido - Automação">🤖 Vendido - Automação</option>
-                    <option value="Vendido - LP + Automação">🔥 Vendido - LP + Automação</option>
-                  </select>
-                  <button id="btn-lead-to-studio" class="text-xs font-semibold text-sky-300 hover:underline flex items-center gap-1">
-                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Gerar Prompt / LP para este Lead →
-                  </button>
-                </div>
-              </div>
-
-              <div class="p-3.5 rounded-xl bg-slate-950/65 border border-rose-500/20 text-xs text-slate-300 leading-relaxed">
-                <strong class="text-rose-300">Dor / Diagnóstico identificado:</strong>
-                <span id="detail-pain">—</span>
-              </div>
-
-              <!-- Chat History -->
-              <div>
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-xs font-bold text-white flex items-center gap-2">
-                    <i data-lucide="bot" class="w-4 h-4 text-teal-300"></i> Conversa & Robô Nagi
-                  </span>
-                  <span class="text-[11px] text-slate-400">Histórico da prospecção</span>
-                </div>
-                <div id="bot-chat-thread" class="h-52 overflow-y-auto p-3.5 rounded-xl bg-slate-950/75 border border-white/10 space-y-3"></div>
-              </div>
-
-              <!-- Script Composer -->
-              <div class="space-y-3 pt-2 border-t border-white/10">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs font-semibold text-slate-300">Estilo do Script:</label>
-                    <select id="bot-script-style" class="nagi-input rounded-lg px-2.5 py-1.5 text-xs">
-                      <option value="consultivo">Abordagem Consultiva (WhatsApp)</option>
-                      <option value="auditoria">Auditoria Rápida (Site/Linktree)</option>
-                      <option value="automacao">Oferta Automação n8n + IA</option>
-                      <option value="followup">Follow-up 48h</option>
-                    </select>
-                  </div>
-                  <button id="bot-generate-script" type="button" class="text-xs font-semibold text-teal-300 hover:text-teal-200 flex items-center gap-1">
-                    <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Regerar Script
-                  </button>
-                </div>
-
-                <textarea id="bot-message-input" rows="4" class="nagi-input w-full rounded-xl p-3 text-xs leading-relaxed"></textarea>
-
-                <div class="flex flex-wrap gap-2.5">
-                  <button id="bot-send-msg" type="button" class="btn-wave px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
-                    <i data-lucide="send" class="w-3.5 h-3.5"></i> Enviar pelo Robô
-                  </button>
-                  <button id="bot-open-whatsapp" type="button" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-200 border border-emerald-400/35 hover:bg-emerald-500/30 flex items-center gap-2 transition">
-                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Enviar no WhatsApp Real
-                  </button>
-                  <button id="bot-copy-script" type="button" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-900 border border-white/15 text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition">
-                    <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copiar Script
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ==================== VIEW 4: ESTÚDIO DE PROMPTS & GERADOR ==================== -->
-        <section id="view-studio" class="view-section space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-            <div>
-              <span class="text-xs font-bold uppercase tracking-widest text-rose-400">Oficina Criativa Nagi</span>
-              <h2 class="font-display text-2xl sm:text-3xl font-extrabold text-washi mt-1">
-                Prompts Prontos & Gerador de Landing Page / n8n
-              </h2>
-            </div>
-            <select id="studio-lead-autofill" class="nagi-input rounded-xl px-4 py-2.5 text-xs max-w-xs"></select>
-          </div>
-
-          <div class="grid lg:grid-cols-12 gap-6 items-start">
-            <!-- Left: Templates & Variables -->
-            <div class="lg:col-span-5 space-y-4">
-              <div class="nagi-card rounded-2xl p-4 space-y-3">
-                <h3 class="text-xs font-bold uppercase tracking-wider text-teal-300">1. Escolha o Modelo de Prompt</h3>
-                <div id="prompt-library-list" class="space-y-2.5 max-h-72 overflow-y-auto pr-1"></div>
-              </div>
-
-              <div class="nagi-card rounded-2xl p-4 space-y-3">
-                <h3 class="text-xs font-bold uppercase tracking-wider text-amber-300">2. Personalize para o Cliente</h3>
-                <div class="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label class="block text-[11px] text-slate-400 mb-1">Empresa</label>
-                    <input id="var-empresa" type="text" value="Churrascaria Brasa Nobre" class="nagi-input w-full rounded-xl px-3 py-2 text-xs" />
-                  </div>
-                  <div>
-                    <label class="block text-[11px] text-slate-400 mb-1">Cidade</label>
-                    <input id="var-cidade" type="text" value="São Paulo, SP" class="nagi-input w-full rounded-xl px-3 py-2 text-xs" />
-                  </div>
-                </div>
-                <div>
-                  <label class="block text-[11px] text-slate-400 mb-1">Segmento</label>
-                  <input id="var-segmento" type="text" value="Churrascaria" class="nagi-input w-full rounded-xl px-3 py-2 text-xs" />
-                </div>
-                <div>
-                  <label class="block text-[11px] text-slate-400 mb-1">Diferencial / Dor</label>
-                  <input id="var-diferencial" type="text" value="Cortes Angus na brasa, costela fogo de chão 8h e reserva sem fila" class="nagi-input w-full rounded-xl px-3 py-2 text-xs" />
-                </div>
-                <div>
-                  <label class="block text-[11px] text-slate-400 mb-1">Oferta Principal</label>
-                  <input id="var-oferta" type="text" value="Reserva VIP pelo site ganha sobremesa ou drink de boas-vindas" class="nagi-input w-full rounded-xl px-3 py-2 text-xs" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Right: Prompt Output + Live In-App Generator -->
-            <div class="lg:col-span-7 space-y-4">
-              <div class="nagi-card rounded-2xl p-4 sm:p-5 space-y-3">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <h3 class="text-xs font-bold uppercase tracking-wider text-white">3. Prompt Pronto (Copie ou Gere Aqui Dentro)</h3>
-                  <div class="flex gap-2">
-                    <button id="btn-copy-prompt" type="button" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-900 border border-white/15 text-slate-200 hover:bg-slate-800 flex items-center gap-1.5 transition">
-                      <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copiar Prompt
-                    </button>
-                    <button id="btn-generate-inside" type="button" class="btn-vermilion px-4 py-2 rounded-xl text-xs flex items-center gap-1.5">
-                      <i data-lucide="play" class="w-3.5 h-3.5"></i> Gerar Ao Vivo Aqui Dentro
-                    </button>
-                  </div>
-                </div>
-                <textarea id="studio-prompt-output" rows="7" class="nagi-input font-mono-code w-full rounded-xl p-3 text-xs leading-relaxed"></textarea>
-              </div>
-
-              <!-- Live Preview / n8n Exporter -->
-              <div class="nagi-card rounded-2xl p-4 sm:p-5 space-y-3">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div class="flex gap-2">
-                    <button id="tab-studio-lp" type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold border bg-teal-500/20 text-teal-200 border-teal-400/40">
-                      Preview Landing Page
-                    </button>
-                    <button id="tab-studio-n8n" type="button" class="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-300 hover:text-white">
-                      Workflow n8n (.json)
-                    </button>
-                  </div>
-
-                  <div class="flex items-center gap-2">
-                    <button id="btn-viewport-desktop" title="Desktop" class="p-1.5 rounded-lg bg-slate-900 border border-white/10 text-slate-300 hover:text-white">
-                      <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button id="btn-viewport-mobile" title="Mobile" class="p-1.5 rounded-lg bg-slate-900 border border-white/10 text-slate-300 hover:text-white">
-                      <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button id="btn-download-lp" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-500/20 text-teal-200 border border-teal-400/30 hover:bg-teal-500/30">
-                      Baixar HTML
-                    </button>
-                  </div>
-                </div>
-
-                <div id="studio-lp-preview-wrap" class="bg-slate-950 rounded-xl border border-white/10 p-2 flex justify-center overflow-hidden">
-                  <iframe id="studio-iframe" title="Preview Landing Page" class="h-[460px] w-full rounded-lg bg-black transition-all duration-300"></iframe>
-                </div>
-
-                <div id="studio-n8n-preview-wrap" class="hidden space-y-3">
-                  <div class="flex justify-end gap-2">
-                    <button id="btn-copy-n8n" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 border border-white/15 text-slate-200">Copiar JSON</button>
-                    <button id="btn-download-n8n" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30">Baixar Workflow n8n</button>
-                  </div>
-                  <pre id="studio-n8n-json" class="font-mono-code text-[11px] text-teal-200 bg-slate-950/90 p-4 rounded-xl border border-white/10 max-h-[420px] overflow-auto"></pre>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-      </div>
-    </main>
-  </div>
-
-  <!-- ==================== TREG SETTINGS MODAL ==================== -->
-  <div id="treg-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="nagi-card max-w-lg w-full rounded-3xl p-6 space-y-4 border border-sky-400/30">
-      <div class="flex items-center justify-between">
-        <div>
-          <h3 class="font-display text-lg font-bold text-washi">Integração Treg.to</h3>
-          <p class="text-xs text-slate-400">Gateway pay-per-call para prospecção real</p>
+    <!-- WHATSAPP -->
+    <section class="tela" id="tela-whatsapp" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">対話</p><h1>WhatsApp</h1><p class="sub">Seu WhatsApp pessoal conectado aqui e no MCP do Antigravity/Codex. O que a IA quiser mandar cai na fila para você aprovar.</p></div>
+      </header>
+      <div class="wa-grade">
+        <div class="cartao wa-lista">
+          <div id="wa-conexao"></div>
+          <input class="busca" id="busca-conversas" placeholder="Buscar conversa…" />
+          <div id="wa-conversas" class="lista-conversas"></div>
         </div>
-        <button id="close-treg-modal" class="p-2 text-slate-400 hover:text-white">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3">
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">X-Treg-Token</label>
-          <input id="modal-treg-token" type="password" placeholder="Cole seu token do treg.to" class="nagi-input w-full rounded-xl px-3.5 py-2.5 text-xs font-mono-code" />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">URL de Proxy CORS (Opcional — para deploy estático)</label>
-          <input id="modal-treg-proxy" type="url" placeholder="Ex: https://seu-worker.workers.dev (ou rode npm start local)" class="nagi-input w-full rounded-xl px-3.5 py-2.5 text-xs font-mono-code" />
-          <p class="text-[11px] text-slate-400 mt-1">
-            Rodando localmente com <code class="text-teal-300">npm start</code>? O proxy <code class="text-teal-300">/api/treg</code> já funciona automaticamente!
-          </p>
+        <div class="cartao wa-chat" id="wa-chat">
+          <div class="vazio"><p class="jp">静</p><p>Escolha uma conversa.</p></div>
         </div>
       </div>
+    </section>
 
-      <div class="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10">
-        <button id="reset-demo-data" type="button" class="text-xs text-rose-300 hover:underline">Restaurar dados demo</button>
-        <button id="save-treg-config" type="button" class="btn-wave px-5 py-2.5 rounded-xl text-xs">Salvar Configurações</button>
+    <!-- FILA -->
+    <section class="tela" id="tela-fila" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">待</p><h1>Fila de envio</h1><p class="sub">Mensagens que a IA (pelo MCP) ou você preparou. Nada sai sem passar pelas travas: limite por dia, intervalo e horário.</p></div>
+        <div class="abas" id="abas-fila">
+          <button data-st="pendente" class="ativo">Pendentes</button><button data-st="aprovado">Aprovadas</button><button data-st="enviado">Enviadas</button><button data-st="rejeitado">Rejeitadas</button><button data-st="erro">Com erro</button>
+        </div>
+      </header>
+      <div id="lista-fila" class="lista-fila"></div>
+    </section>
+
+    <!-- INSTAGRAM -->
+    <section class="tela" id="tela-instagram" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">写</p><h1>Instagram</h1><p class="sub">O Instagram não permite mandar mensagem a frio por robô sem arriscar a conta. Aqui a IA prepara a DM, e você copia e envia com um clique.</p></div>
+      </header>
+      <div id="lista-ig" class="lista-fila"></div>
+    </section>
+
+    <!-- ESTÚDIO -->
+    <section class="tela" id="tela-estudio" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">創造</p><h1>Estúdio</h1><p class="sub">Uma prévia de página para o lead em segundos, um fluxo n8n de partida e os prompts prontos.</p></div>
+      </header>
+      <div class="grade-estudio">
+        <form class="cartao" id="form-estudio">
+          <label>Empresa<input name="company" placeholder="Barbearia Ronin" /></label>
+          <label>Segmento<input name="segment" placeholder="Barbearia" /></label>
+          <label>Cidade<input name="city" placeholder="Cajazeiras PB" /></label>
+          <label>Diferencial<input name="diferencial" placeholder="atendimento com hora marcada" /></label>
+          <label>Oferta<input name="oferta" placeholder="primeiro corte com 20% off" /></label>
+          <label>Telefone do negócio<input name="phone" placeholder="5583999999999" /></label>
+          <div class="linha-botoes">
+            <button class="btn btn-claro" type="submit"><i data-lucide="wand-2"></i>Gerar prévia</button>
+            <button class="btn btn-vidro" type="button" id="baixar-lp"><i data-lucide="download"></i>Baixar .html</button>
+            <button class="btn btn-vidro" type="button" id="baixar-n8n"><i data-lucide="workflow"></i>Fluxo n8n</button>
+          </div>
+        </form>
+        <div class="cartao previa"><iframe id="previa-lp" title="Prévia da página"></iframe></div>
       </div>
-    </div>
-  </div>
+      <div class="cartao">
+        <div class="cartao-topo"><h2>Prompts prontos</h2><span class="dica">copie para o Lovable, v0, Cursor ou Claude</span></div>
+        <div id="lista-prompts" class="lista-prompts"></div>
+      </div>
+    </section>
 
-  <script type="module" src="js/app.js?v=kanagawa3"></script>
+    <!-- AJUSTES -->
+    <section class="tela" id="tela-ajustes" hidden>
+      <header class="tela-topo">
+        <div><p class="jp">設定</p><h1>Ajustes</h1><p class="sub">Travas de envio, treg e a ligação com o Antigravity e o Codex.</p></div>
+      </header>
+      <div class="grade-2">
+        <form class="cartao" id="form-config"></form>
+        <div class="cartao" id="mcp-info"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- gaveta do lead -->
+  <aside class="gaveta" id="gaveta" hidden></aside>
+  <div class="modal-fundo" id="modal" hidden><div class="modal" id="modal-corpo"></div></div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script type="module" src="js/app.js?v=10"></script>
 </body>
 </html>

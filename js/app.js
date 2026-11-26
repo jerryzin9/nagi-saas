@@ -1,1101 +1,647 @@
-import { NagiOcean3D } from './ocean3d.js?v=kanagawa3';
-import { NagiBrazilGlobe3D } from './globe3d.js?v=kanagawa3';
-import { TREG_ENDPOINTS, INITIAL_LEADS, PROMPT_TEMPLATES, SCRIPT_TEMPLATES } from './data.js?v=kanagawa3';
-import { TregClient } from './treg.js?v=kanagawa3';
-import { generateLandingPageHTML, generateN8nWorkflowJSON } from './generator.js?v=kanagawa3';
+/**
+ * Nagi 凪 — painel pessoal de prospecção do Jerry.
+ * Consome o servidor local (server.js + backend/) em /api/*: leads, WhatsApp (Baileys), fila de aprovação,
+ * rascunhos do Instagram, métricas, config e prospecção pelo treg. Nada de dado inventado nesta tela.
+ */
+import { Oceano } from './ocean.js';
+import { get, post, patch, del } from './api.js';
+import { PROMPT_TEMPLATES } from './data.js';
+import { generateLandingPageHTML, generateN8nWorkflowJSON } from './generator.js';
 
-const STORAGE_KEY = 'nagi_saas_state_v1';
+const ETAPAS = [
+  ['novo', 'Novos', '新'], ['abordado', 'Abordados', '声'], ['respondeu', 'Responderam', '返'],
+  ['reuniao', 'Reunião', '会'], ['proposta', 'Proposta', '案'], ['fechado', 'Fechados', '成'], ['perdido', 'Perdidos', '散'],
+];
+const NOME_ETAPA = Object.fromEntries(ETAPAS.map(([k, n]) => [k, n]));
 
-const defaultState = {
-  user: null, // { name, email, specialty, goal, avatarLetter }
-  treg: {
-    token: '',
-    proxyUrl: '',
-    lastStatus: 'sandbox'
-  },
-  leads: INITIAL_LEADS,
-  discoveredLeads: [],
-  selectedLeadId: INITIAL_LEADS[0].id,
-  selectedPromptId: PROMPT_TEMPLATES[0].id,
-  metrics: {
-    totalProspectedRuns: 18,
-    messagesSent: 27
-  },
-  activities: [
-    { id: 1, text: 'Venda fechada: Barbearia Ronin Club (Landing Page — R$ 1.850)', time: 'Há 2 horas', type: 'sale' },
-    { id: 2, text: 'Lead respondeu no Robô: Churrascaria Brasa Nobre', time: 'Ontem', type: 'reply' },
-    { id: 3, text: 'Treg Gateway prospectou 6 leads em São Paulo, SP', time: 'Ontem', type: 'treg' }
-  ]
+const E = {
+  tela: 'painel', leads: [], fila: [], rascunhos: [], config: {}, wa: {}, metricas: null,
+  conversas: [], chatJid: null, filtroFila: 'pendente', buscaLeads: '', buscaConversas: '',
+  resultados: [], ultimaBusca: null, grafico: null, previaHTML: '', previaDados: null,
 };
 
-class NagiApp {
-  constructor() {
-    this.state = this.loadState();
-    this.treg = new TregClient();
-    this.ocean = null;
-    this.globe = null;
-    this.charts = {};
-    this.currentView = 'dashboard';
-    this.studioTab = 'lp'; // 'lp' | 'n8n'
-    this.previewViewport = 'desktop'; // 'desktop' | 'mobile'
-    this.lastGeneratedHTML = '';
-    this.lastGeneratedJSON = '';
-
-    this.init();
-  }
-
-  loadState() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return structuredClone(defaultState);
-      const parsed = JSON.parse(raw);
-      return {
-        ...structuredClone(defaultState),
-        ...parsed,
-        treg: { ...defaultState.treg, ...(parsed.treg || {}) },
-        metrics: { ...defaultState.metrics, ...(parsed.metrics || {}) }
-      };
-    } catch {
-      return structuredClone(defaultState);
-    }
-  }
-
-  saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
-  }
-
-  init() {
-    this.ocean = new NagiOcean3D('nagi-canvas');
-    this.bindAuth();
-    this.bindNavigation();
-    this.bindModals();
-    this.bindDashboard();
-    this.bindProspecting();
-    this.bindLeadsAndBot();
-    this.bindStudio();
-    this.bind3DTilt();
-
-    if (this.state.user) {
-      this.enterApp();
-    } else {
-      this.showAuth();
-    }
-
-    if (window.lucide) window.lucide.createIcons();
-  }
-
-  /* ==================== AUTH ==================== */
-  bindAuth() {
-    const tabLogin = document.getElementById('tab-auth-login');
-    const tabRegister = document.getElementById('tab-auth-register');
-    const registerFields = document.getElementById('register-extra-fields');
-    const authSubmitBtn = document.getElementById('auth-submit-btn');
-    const authForm = document.getElementById('auth-form');
-    const demoBtn = document.getElementById('auth-demo-btn');
-
-    let mode = 'login';
-
-    const setMode = (next) => {
-      mode = next;
-      if (mode === 'register') {
-        registerFields.classList.remove('hidden');
-        tabRegister.classList.add('bg-teal-400/20', 'text-teal-300', 'border-teal-400/40');
-        tabLogin.classList.remove('bg-teal-400/20', 'text-teal-300', 'border-teal-400/40');
-        authSubmitBtn.innerHTML = '<i data-lucide="sparkles" class="w-4 h-4"></i> Criar Conta & Conectar Treg';
-      } else {
-        registerFields.classList.add('hidden');
-        tabLogin.classList.add('bg-teal-400/20', 'text-teal-300', 'border-teal-400/40');
-        tabRegister.classList.remove('bg-teal-400/20', 'text-teal-300', 'border-teal-400/40');
-        authSubmitBtn.innerHTML = '<i data-lucide="waves" class="w-4 h-4"></i> Entrar no Nagi SaaS';
-      }
-      if (window.lucide) window.lucide.createIcons();
-    };
-
-    tabLogin?.addEventListener('click', () => setMode('login'));
-    tabRegister?.addEventListener('click', () => setMode('register'));
-
-    authForm?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const email = document.getElementById('auth-email').value.trim() || 'dev@nagi.studio';
-      const nameInput = document.getElementById('auth-name').value.trim();
-      const specialty = document.getElementById('auth-specialty').value;
-      const tregToken = document.getElementById('auth-treg-token').value.trim();
-
-      const displayName =
-        nameInput ||
-        email
-          .split('@')[0]
-          .replace(/[._-]/g, ' ')
-          .replace(/\b\w/g, (l) => l.toUpperCase());
-
-      this.state.user = {
-        name: displayName,
-        email,
-        specialty: specialty || 'Landing Pages & Automações n8n',
-        goal: 15000
-      };
-      if (tregToken) {
-        this.state.treg.token = tregToken;
-        this.state.treg.lastStatus = 'connected';
-      }
-      this.saveState();
-      this.ocean?.triggerSurge(1.8);
-      this.enterApp();
-      this.toast(`Bem-vindo(a) ao Nagi, ${displayName}!`, 'success');
-    });
-
-    demoBtn?.addEventListener('click', () => {
-      const tregToken = document.getElementById('auth-treg-token').value.trim();
-      this.state.user = {
-        name: 'Kenji Dev',
-        email: 'kenji@nagi.studio',
-        specialty: 'Landing Pages & Automações n8n',
-        goal: 15000
-      };
-      if (tregToken) {
-        this.state.treg.token = tregToken;
-        this.state.treg.lastStatus = 'connected';
-      }
-      this.saveState();
-      this.ocean?.triggerSurge(1.8);
-      this.enterApp();
-      this.toast('Sessão Demo iniciada com Treg Sandbox ativo!', 'success');
-    });
-
-    document.getElementById('logout-btn')?.addEventListener('click', () => {
-      this.state.user = null;
-      this.saveState();
-      this.showAuth();
-      this.toast('Você saiu da sua conta Nagi.', 'info');
-    });
-  }
-
-  showAuth() {
-    document.getElementById('auth-screen').classList.remove('hidden');
-    document.getElementById('app-shell').classList.add('hidden');
-  }
-
-  enterApp() {
-    document.getElementById('auth-screen').classList.add('hidden');
-    document.getElementById('app-shell').classList.remove('hidden');
-    this.renderUserHeader();
-    this.switchView(this.currentView);
-    this.renderAll();
-  }
-
-  renderUserHeader() {
-    if (!this.state.user) return;
-    document.getElementById('user-name-label').textContent = this.state.user.name;
-    document.getElementById('user-role-label').textContent = this.state.user.specialty;
-    document.getElementById('user-avatar-letter').textContent = this.state.user.name.charAt(0).toUpperCase();
-
-    const pill = document.getElementById('treg-status-pill');
-    const hasToken = Boolean(this.state.treg.token);
-    if (hasToken) {
-      pill.innerHTML = `<span class="relative w-2 h-2 rounded-full bg-teal-400 live-dot"></span><span>Treg Conectado</span>`;
-      pill.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-teal-500/15 text-teal-300 border border-teal-400/30 cursor-pointer hover:bg-teal-500/25 transition';
-    } else {
-      pill.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span><span>Treg Sandbox (Configurar)</span>`;
-      pill.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-400/30 cursor-pointer hover:bg-amber-500/25 transition';
-    }
-  }
-
-  /* ==================== NAVIGATION ==================== */
-  bindNavigation() {
-    document.querySelectorAll('[data-nav]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const view = btn.getAttribute('data-nav');
-        this.switchView(view);
-        // Close mobile sidebar if open
-        document.getElementById('mobile-sidebar')?.classList.add('-translate-x-full');
-      });
-    });
-
-    document.getElementById('mobile-menu-btn')?.addEventListener('click', () => {
-      document.getElementById('mobile-sidebar')?.classList.toggle('-translate-x-full');
-    });
-    document.getElementById('close-mobile-sidebar')?.addEventListener('click', () => {
-      document.getElementById('mobile-sidebar')?.classList.add('-translate-x-full');
-    });
-  }
-
-  switchView(viewId) {
-    this.currentView = viewId;
-    document.querySelectorAll('.view-section').forEach((sec) => {
-      sec.classList.toggle('active', sec.id === `view-${viewId}`);
-    });
-    document.querySelectorAll('[data-nav]').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-nav') === viewId);
-    });
-
-    if (viewId === 'dashboard') this.renderDashboard();
-    if (viewId === 'prospecting') {
-      if (!this.globe) {
-        this.globe = new NagiBrazilGlobe3D('brazil-globe-canvas');
-      } else {
-        setTimeout(() => this.globe?.resize(), 50);
-      }
-    }
-    if (viewId === 'leads') this.renderLeadsView();
-    if (viewId === 'studio') this.renderStudio();
-    if (window.lucide) window.lucide.createIcons();
-  }
-
-  /* ==================== MODALS (TREG CONFIG & CATALOG) ==================== */
-  bindModals() {
-    const modal = document.getElementById('treg-modal');
-    const openModal = () => {
-      document.getElementById('modal-treg-token').value = this.state.treg.token || '';
-      document.getElementById('modal-treg-proxy').value = this.state.treg.proxyUrl || '';
-      modal.classList.remove('hidden');
-    };
-
-    document.getElementById('treg-status-pill')?.addEventListener('click', openModal);
-    document.getElementById('open-treg-settings')?.addEventListener('click', openModal);
-    document.getElementById('close-treg-modal')?.addEventListener('click', () => modal.classList.add('hidden'));
-
-    document.getElementById('save-treg-config')?.addEventListener('click', () => {
-      this.state.treg.token = document.getElementById('modal-treg-token').value.trim();
-      this.state.treg.proxyUrl = document.getElementById('modal-treg-proxy').value.trim();
-      this.saveState();
-      this.renderUserHeader();
-      modal.classList.add('hidden');
-      this.toast(
-        this.state.treg.token ? 'Token Treg salvo com sucesso!' : 'Modo Sandbox Treg ativado.',
-        'success'
-      );
-    });
-
-    document.getElementById('reset-demo-data')?.addEventListener('click', () => {
-      const currentUser = this.state.user;
-      this.state = structuredClone(defaultState);
-      this.state.user = currentUser;
-      this.saveState();
-      this.renderAll();
-      modal.classList.add('hidden');
-      this.toast('Dados de demonstração restaurados.', 'info');
-    });
-  }
-
-  /* ==================== DASHBOARD ==================== */
-  bindDashboard() {
-    document.getElementById('quick-go-prospect')?.addEventListener('click', () => this.switchView('prospecting'));
-    document.getElementById('quick-go-studio')?.addEventListener('click', () => this.switchView('studio'));
-  }
-
-  renderDashboard() {
-    const leads = this.state.leads;
-    const totalProspected = leads.length + this.state.metrics.totalProspectedRuns;
-    const soldLP = leads.filter((l) => l.status === 'Vendido - LP' || l.status === 'Vendido - LP + Automação');
-    const soldAuto = leads.filter((l) => l.status === 'Vendido - Automação' || l.status === 'Vendido - LP + Automação');
-
-    const revenueClosed = leads
-      .filter((l) => l.status.startsWith('Vendido'))
-      .reduce((acc, l) => acc + (Number(l.potentialTicket) || 0), 0);
-
-    const openPipeline = leads
-      .filter((l) => !l.status.startsWith('Vendido'))
-      .reduce((acc, l) => acc + (Number(l.potentialTicket) || 0), 0);
-
-    document.getElementById('kpi-prospected').textContent = totalProspected;
-    document.getElementById('kpi-messages').textContent = this.state.metrics.messagesSent;
-    document.getElementById('kpi-lp-sold').textContent = soldLP.length;
-    document.getElementById('kpi-auto-sold').textContent = soldAuto.length;
-    document.getElementById('kpi-revenue').textContent = `R$ ${revenueClosed.toLocaleString('pt-BR')}`;
-    document.getElementById('kpi-pipeline').textContent = `R$ ${openPipeline.toLocaleString('pt-BR')} em aberto`;
-
-    // Goal progress
-    const goal = this.state.user?.goal || 15000;
-    const pct = Math.min(100, Math.round((revenueClosed / goal) * 100));
-    document.getElementById('goal-progress-bar').style.width = `${pct}%`;
-    document.getElementById('goal-progress-label').textContent = `${pct}% da meta mensal (R$ ${goal.toLocaleString('pt-BR')})`;
-
-    // Activity feed
-    const feed = document.getElementById('dashboard-activity-feed');
-    feed.innerHTML = this.state.activities
-      .slice(0, 6)
-      .map((act) => {
-        const badge =
-          act.type === 'sale'
-            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
-            : act.type === 'treg'
-            ? 'bg-sky-500/15 text-sky-300 border-sky-400/30'
-            : 'bg-amber-500/15 text-amber-300 border-amber-400/30';
-        return `
-          <div class="flex items-start gap-3 p-3 rounded-xl bg-slate-950/50 border border-white/5">
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${badge}">${act.type}</span>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs sm:text-sm text-slate-200 leading-snug">${act.text}</p>
-              <span class="text-[11px] text-slate-400">${act.time}</span>
-            </div>
-          </div>`;
-      })
-      .join('');
-
-    this.renderCharts(leads);
-  }
-
-  renderCharts(leads) {
-    if (typeof Chart === 'undefined') return;
-
-    const ctxWave = document.getElementById('chart-wave-metrics')?.getContext('2d');
-    if (ctxWave) {
-      if (this.charts.wave) this.charts.wave.destroy();
-      const grad = ctxWave.createLinearGradient(0, 0, 0, 240);
-      grad.addColorStop(0, 'rgba(45, 212, 191, 0.35)');
-      grad.addColorStop(1, 'rgba(45, 212, 191, 0.0)');
-
-      const gradRed = ctxWave.createLinearGradient(0, 0, 0, 240);
-      gradRed.addColorStop(0, 'rgba(245, 185, 66, 0.32)');
-      gradRed.addColorStop(1, 'rgba(245, 185, 66, 0.0)');
-
-      this.charts.wave = new Chart(ctxWave, {
-        type: 'line',
-        data: {
-          labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Hoje'],
-          datasets: [
-            {
-              label: 'Leads Prospectados',
-              data: [4, 7, 5, 9, 6, 8, leads.length + 4],
-              borderColor: '#2dd4bf',
-              backgroundColor: grad,
-              fill: true,
-              tension: 0.42,
-              borderWidth: 2.5,
-              pointRadius: 4,
-              pointBackgroundColor: '#2dd4bf'
-            },
-            {
-              label: 'Propostas & Vendas',
-              data: [1, 2, 1, 3, 2, 3, leads.filter((l) => l.status !== 'Novo').length],
-              borderColor: '#f5b942',
-              backgroundColor: gradRed,
-              fill: true,
-              tension: 0.42,
-              borderWidth: 2.5,
-              pointRadius: 4,
-              pointBackgroundColor: '#f5b942'
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: '#cbd5e1', font: { size: 11 } } }
-          },
-          scales: {
-            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
-            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }
-          }
-        }
-      });
-    }
-
-    const ctxSeg = document.getElementById('chart-segments')?.getContext('2d');
-    if (ctxSeg) {
-      if (this.charts.segments) this.charts.segments.destroy();
-      const map = {};
-      leads.forEach((l) => {
-        map[l.segment] = (map[l.segment] || 0) + 1;
-      });
-      this.charts.segments = new Chart(ctxSeg, {
-        type: 'doughnut',
-        data: {
-          labels: Object.keys(map),
-          datasets: [
-            {
-              data: Object.values(map),
-              backgroundColor: ['#2dd4bf', '#38bdf8', '#f5b942', '#e11d48', '#818cf8', '#fb923c'],
-              borderColor: '#071121',
-              borderWidth: 3
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '66%',
-          plugins: {
-            legend: { position: 'bottom', labels: { color: '#cbd5e1', boxWidth: 10, font: { size: 11 } } }
-          }
-        }
-      });
-    }
-  }
-
-  /* ==================== PROSPECTING (TREG) ==================== */
-  bindProspecting() {
-    const select = document.getElementById('treg-endpoint-select');
-    if (select) {
-      select.innerHTML = TREG_ENDPOINTS.map(
-        (ep) => `<option value="${ep.id}">${ep.label} — ${ep.cost}</option>`
-      ).join('');
-    }
-
-    document.querySelectorAll('.niche-chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.getElementById('prospect-niche').value = chip.dataset.niche;
-      });
-    });
-
-    document.getElementById('btn-focus-brazil')?.addEventListener('click', () => {
-      this.globe?.focusBrazil(true);
-    });
-
-    document.getElementById('prospect-form')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const query = document.getElementById('prospect-niche').value.trim() || 'Churrascaria';
-      const city = document.getElementById('prospect-city').value.trim() || 'São Paulo, SP';
-      const endpointId = document.getElementById('treg-endpoint-select').value;
-      const limit = Number(document.getElementById('prospect-limit').value) || 6;
-
-      const btn = document.getElementById('btn-run-prospect');
-      const terminal = document.getElementById('treg-terminal-log');
-      btn.disabled = true;
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Varrendo Estados no Globo...`;
-      if (window.lucide) window.lucide.createIcons();
-
-      this.ocean?.triggerSurge(2.0);
-      terminal.textContent = `> Conectando ao gateway treg.to...\n> Iniciando varredura orbital no Brasil (${city}) para "${query}"...`;
-
-      const [res] = await Promise.all([
-        this.treg.prospect({
-          query,
-          city,
-          endpointId,
-          limit,
-          token: this.state.treg.token,
-          proxyUrl: this.state.treg.proxyUrl
-        }),
-        this.globe
-          ? this.globe.runProspectingScan(query, city, (st) => {
-              terminal.textContent += `\n[SAT-BRASIL] Escaneando ${st.name} (${st.uf})...`;
-              terminal.scrollTop = terminal.scrollHeight;
-            })
-          : Promise.resolve()
-      ]);
-
-      terminal.textContent = res.logs.join('\n');
-      this.state.discoveredLeads = res.leads;
-      this.state.metrics.totalProspectedRuns += res.leads.length;
-      this.addActivity(`Prospecção Treg (${endpointId}): ${res.leads.length} leads de "${query}" em ${city}`, 'treg');
-      this.saveState();
-
-      this.renderDiscoveredLeads();
-      btn.disabled = false;
-      btn.innerHTML = `<i data-lucide="radar" class="w-4 h-4"></i> Prospectar via Treg`;
-      if (window.lucide) window.lucide.createIcons();
-      this.toast(`${res.leads.length} leads encontrados via ${res.mode === 'live' ? 'Treg API Real' : 'Treg Sandbox'}!`, 'success');
-    });
-
-    document.getElementById('btn-fetch-treg-catalog')?.addEventListener('click', async () => {
-      const q = document.getElementById('prospect-niche').value.trim() || 'leads';
-      const box = document.getElementById('treg-catalog-results');
-      box.classList.remove('hidden');
-      box.innerHTML = `<p class="text-xs text-sky-300">Consultando catálogo público real em https://treg.to/catalog/search?q=${encodeURIComponent(q)}...</p>`;
-
-      const result = await this.treg.searchCatalog(q);
-      if (!result.ok) {
-        box.innerHTML = `<p class="text-xs text-rose-300">Não foi possível consultar o catálogo agora (${result.error}).</p>`;
-        return;
-      }
-      const items = (result.data.results || []).slice(0, 6);
-      if (!items.length) {
-        box.innerHTML = `<p class="text-xs text-slate-400">Nenhum endpoint encontrado para "${q}". Tente "leads" ou "places".</p>`;
-        return;
-      }
-      box.innerHTML = `
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-bold text-teal-300">Catálogo Real Treg.to (${result.data.total || items.length} ferramentas encontradas)</span>
-          <button id="close-catalog-box" class="text-xs text-slate-400 hover:text-white">Fechar</button>
-        </div>
-        <div class="grid sm:grid-cols-2 gap-2">
-          ${items
-            .map(
-              (it) => `
-            <div class="p-2.5 rounded-lg bg-slate-950/70 border border-white/10 text-xs">
-              <div class="flex items-center justify-between gap-2">
-                <code class="text-teal-300 font-mono-code">${it.id}</code>
-                <span class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[10px]">${it.method || 'POST'}</span>
-              </div>
-              <p class="text-slate-300 mt-1 line-clamp-2">${it.summary || it.name}</p>
-            </div>`
-            )
-            .join('')}
-        </div>`;
-      document.getElementById('close-catalog-box')?.addEventListener('click', () => box.classList.add('hidden'));
-    });
-
-    document.getElementById('btn-save-all-discovered')?.addEventListener('click', () => {
-      if (!this.state.discoveredLeads.length) return;
-      let added = 0;
-      this.state.discoveredLeads.forEach((dl) => {
-        if (!this.state.leads.some((l) => l.company === dl.company && l.city === dl.city)) {
-          this.state.leads.unshift({ ...dl, messages: [], createdAt: new Date().toISOString() });
-          added++;
-        }
-      });
-      this.saveState();
-      this.renderLeadsView();
-      this.toast(`${added} leads salvos no seu pipeline!`, 'success');
-    });
-  }
-
-  renderDiscoveredLeads() {
-    const container = document.getElementById('discovered-leads-grid');
-    const saveAllBtn = document.getElementById('btn-save-all-discovered');
-    const list = this.state.discoveredLeads;
-
-    if (!list.length) {
-      saveAllBtn?.classList.add('hidden');
-      container.innerHTML = `
-        <div class="col-span-full nagi-card rounded-2xl p-8 text-center border-dashed">
-          <p class="font-jp text-2xl text-teal-300/70 mb-2">開拓</p>
-          <p class="text-sm text-slate-300">Escolha um nicho (ex: <strong>Churrascaria</strong>) e cidade acima e clique em <strong>Prospectar via Treg</strong>.</p>
-        </div>`;
-      return;
-    }
-
-    saveAllBtn?.classList.remove('hidden');
-    container.innerHTML = list
-      .map(
-        (lead, idx) => `
-      <div class="nagi-card tilt-card rounded-2xl p-5 flex flex-col justify-between gap-4">
-        <div>
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <span class="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-teal-500/15 text-teal-300 border border-teal-400/25 mb-1.5">${lead.segment}</span>
-              <h4 class="font-bold text-base text-white leading-tight">${lead.company}</h4>
-              <p class="text-xs text-slate-400 mt-0.5">${lead.city} • ${lead.rating}</p>
-            </div>
-            <span class="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-400/20 px-2 py-1 rounded-lg">R$ ${lead.potentialTicket.toLocaleString('pt-BR')}</span>
-          </div>
-
-          <div class="mt-3 space-y-1.5 text-xs text-slate-300">
-            <p><strong class="text-slate-400">Decisor:</strong> ${lead.contactName} (${lead.role})</p>
-            <p><strong class="text-slate-400">Site:</strong> <span class="text-rose-300">${lead.website}</span></p>
-            <p class="text-slate-300/90 bg-slate-950/60 p-2.5 rounded-xl border border-white/5 leading-relaxed">
-              <strong class="text-sky-300">Oportunidade:</strong> ${lead.painPoint}
-            </p>
-          </div>
-        </div>
-
-        <div class="flex flex-wrap gap-2 pt-2 border-t border-white/10">
-          <button data-save-lead="${idx}" class="flex-1 px-3 py-2 rounded-xl text-xs font-bold bg-teal-500/20 text-teal-200 border border-teal-400/30 hover:bg-teal-500/30 transition">
-            + Salvar Lead
-          </button>
-          <button data-bot-lead="${idx}" class="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 hover:bg-sky-500/30 transition">
-            Abrir Robô
-          </button>
-          <button data-lp-lead="${idx}" class="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/20 text-amber-200 border border-amber-400/30 hover:bg-amber-500/30 transition">
-            Gerar LP
-          </button>
-        </div>
-      </div>`
-      )
-      .join('');
-
-    container.querySelectorAll('[data-save-lead]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const lead = this.saveDiscoveredToPipeline(Number(btn.dataset.saveLead));
-        this.toast(`${lead.company} salvo em Meus Leads!`, 'success');
-      });
-    });
-
-    container.querySelectorAll('[data-bot-lead]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const lead = this.saveDiscoveredToPipeline(Number(btn.dataset.botLead));
-        this.state.selectedLeadId = lead.id;
-        this.saveState();
-        this.switchView('leads');
-      });
-    });
-
-    container.querySelectorAll('[data-lp-lead]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const lead = this.saveDiscoveredToPipeline(Number(btn.dataset.lpLead));
-        this.state.selectedLeadId = lead.id;
-        this.saveState();
-        this.switchView('studio');
-        this.fillStudioFromLead(lead);
-      });
-    });
-
-    this.bind3DTilt();
-  }
-
-  saveDiscoveredToPipeline(idx) {
-    const dl = this.state.discoveredLeads[idx];
-    const existing = this.state.leads.find((l) => l.company === dl.company && l.city === dl.city);
-    if (existing) return existing;
-    const saved = { ...dl, messages: [], createdAt: new Date().toISOString() };
-    this.state.leads.unshift(saved);
-    this.saveState();
-    return saved;
-  }
-
-  /* ==================== LEADS & ROBÔ DE ABORDAGEM ==================== */
-  bindLeadsAndBot() {
-    document.getElementById('leads-search')?.addEventListener('input', () => this.renderLeadsList());
-    document.getElementById('leads-filter-segment')?.addEventListener('change', () => this.renderLeadsList());
-    document.getElementById('leads-filter-status')?.addEventListener('change', () => this.renderLeadsList());
-
-    document.getElementById('bot-script-style')?.addEventListener('change', (e) => {
-      const lead = this.getSelectedLead();
-      if (!lead) return;
-      const fn = SCRIPT_TEMPLATES[e.target.value] || SCRIPT_TEMPLATES.consultivo;
-      document.getElementById('bot-message-input').value = fn(lead);
-    });
-
-    document.getElementById('bot-generate-script')?.addEventListener('click', () => {
-      const lead = this.getSelectedLead();
-      if (!lead) return;
-      const style = document.getElementById('bot-script-style').value;
-      document.getElementById('bot-message-input').value = (SCRIPT_TEMPLATES[style] || SCRIPT_TEMPLATES.consultivo)(lead);
-      this.toast('Script personalizado gerado pelo Robô Nagi!', 'info');
-    });
-
-    document.getElementById('bot-send-msg')?.addEventListener('click', () => {
-      this.sendBotMessage(false);
-    });
-
-    document.getElementById('bot-open-whatsapp')?.addEventListener('click', () => {
-      this.sendBotMessage(true);
-    });
-
-    document.getElementById('bot-copy-script')?.addEventListener('click', () => {
-      const txt = document.getElementById('bot-message-input').value;
-      if (!txt) return;
-      navigator.clipboard.writeText(txt);
-      this.toast('Script copiado para a área de transferência!', 'success');
-    });
-
-    document.getElementById('lead-status-select')?.addEventListener('change', (e) => {
-      const lead = this.getSelectedLead();
-      if (!lead) return;
-      const prev = lead.status;
-      lead.status = e.target.value;
-      if (lead.status.startsWith('Vendido') && !prev.startsWith('Vendido')) {
-        this.ocean?.triggerSurge(2.2);
-        this.addActivity(`Venda fechada: ${lead.company} (${lead.status} — R$ ${lead.potentialTicket.toLocaleString('pt-BR')})`, 'sale');
-        this.toast(`Parabéns! Venda registrada para ${lead.company}!`, 'success');
-      }
-      this.saveState();
-      this.renderLeadsList();
-      this.renderDashboard();
-    });
-
-    document.getElementById('btn-lead-to-studio')?.addEventListener('click', () => {
-      const lead = this.getSelectedLead();
-      if (!lead) return;
-      this.switchView('studio');
-      this.fillStudioFromLead(lead);
-    });
-  }
-
-  getSelectedLead() {
-    return this.state.leads.find((l) => l.id === this.state.selectedLeadId) || this.state.leads[0];
-  }
-
-  sendBotMessage(openWhatsApp = false) {
-    const lead = this.getSelectedLead();
-    const input = document.getElementById('bot-message-input');
-    const text = input.value.trim();
-    if (!lead || !text) return;
-
-    lead.messages = lead.messages || [];
-    lead.messages.push({
-      sender: 'bot',
-      text,
-      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    });
-    if (lead.status === 'Novo') lead.status = 'Contatado';
-
-    this.state.metrics.messagesSent += 1;
-    this.addActivity(`Robô enviou abordagem para ${lead.company} (${lead.segment})`, 'bot');
-    this.saveState();
-    this.renderLeadDetail();
-    this.renderLeadsList();
-
-    if (openWhatsApp) {
-      const phone = (lead.phone || '').replace(/\D/g, '');
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
-    } else {
-      this.toast(`Mensagem registrada e enviada no simulador para ${lead.contactName}!`, 'success');
-    }
-  }
-
-  renderLeadsView() {
-    // Populate segment filter
-    const segSelect = document.getElementById('leads-filter-segment');
-    if (segSelect) {
-      const current = segSelect.value;
-      const segs = [...new Set(this.state.leads.map((l) => l.segment))];
-      segSelect.innerHTML = `<option value="">Todos Segmentos</option>` + segs.map((s) => `<option value="${s}">${s}</option>`).join('');
-      if (segs.includes(current)) segSelect.value = current;
-    }
-
-    this.renderLeadsList();
-    this.renderLeadDetail();
-  }
-
-  renderLeadsList() {
-    const q = (document.getElementById('leads-search')?.value || '').toLowerCase();
-    const seg = document.getElementById('leads-filter-segment')?.value || '';
-    const st = document.getElementById('leads-filter-status')?.value || '';
-
-    const filtered = this.state.leads.filter((l) => {
-      const matchQ =
-        !q ||
-        l.company.toLowerCase().includes(q) ||
-        l.contactName.toLowerCase().includes(q) ||
-        l.city.toLowerCase().includes(q);
-      const matchSeg = !seg || l.segment === seg;
-      const matchSt = !st || l.status === st;
-      return matchQ && matchSeg && matchSt;
-    });
-
-    const container = document.getElementById('leads-list-container');
-    if (!filtered.length) {
-      container.innerHTML = `<p class="text-xs text-slate-400 p-4 text-center">Nenhum lead encontrado com esses filtros.</p>`;
-      return;
-    }
-
-    container.innerHTML = filtered
-      .map((lead) => {
-        const active = lead.id === this.state.selectedLeadId;
-        const statusColor = lead.status.startsWith('Vendido')
-          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
-          : lead.status === 'Respondeu' || lead.status === 'Proposta'
-          ? 'bg-amber-500/20 text-amber-300 border-amber-400/30'
-          : lead.status === 'Contatado'
-          ? 'bg-sky-500/20 text-sky-300 border-sky-400/30'
-          : 'bg-slate-700/40 text-slate-300 border-white/10';
-
-        return `
-          <button data-select-lead="${lead.id}" class="w-full text-left p-3.5 rounded-xl border transition ${
-          active
-            ? 'bg-teal-500/15 border-teal-400/45 shadow-lg'
-            : 'bg-slate-950/50 border-white/10 hover:border-sky-400/30'
-        }">
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0">
-                <p class="font-bold text-sm text-white truncate">${lead.company}</p>
-                <p class="text-xs text-slate-400 truncate">${lead.segment} • ${lead.city}</p>
-              </div>
-              <span class="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold border ${statusColor}">${lead.status}</span>
-            </div>
-            <div class="flex items-center justify-between mt-2 text-[11px] text-slate-400">
-              <span>${lead.contactName}</span>
-              <span class="text-amber-300 font-semibold">R$ ${Number(lead.potentialTicket).toLocaleString('pt-BR')}</span>
-            </div>
-          </button>`;
-      })
-      .join('');
-
-    container.querySelectorAll('[data-select-lead]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.state.selectedLeadId = btn.dataset.selectLead;
-        this.saveState();
-        this.renderLeadsList();
-        this.renderLeadDetail();
-      });
-    });
-  }
-
-  renderLeadDetail() {
-    const lead = this.getSelectedLead();
-    if (!lead) return;
-
-    document.getElementById('detail-company').textContent = lead.company;
-    document.getElementById('detail-meta').textContent = `${lead.segment} • ${lead.city} • ${lead.rating}`;
-    document.getElementById('detail-contact').textContent = `${lead.contactName} (${lead.role}) • ${lead.instagram || ''}`;
-    document.getElementById('detail-pain').textContent = lead.painPoint;
-    document.getElementById('lead-status-select').value = lead.status;
-
-    const style = document.getElementById('bot-script-style').value;
-    document.getElementById('bot-message-input').value = (SCRIPT_TEMPLATES[style] || SCRIPT_TEMPLATES.consultivo)(lead);
-
-    const chatBox = document.getElementById('bot-chat-thread');
-    const msgs = lead.messages || [];
-    if (!msgs.length) {
-      chatBox.innerHTML = `<p class="text-xs text-slate-400 text-center py-6">Nenhuma mensagem enviada ainda. Use o script abaixo para iniciar a prospecção!</p>`;
-    } else {
-      chatBox.innerHTML = msgs
-        .map(
-          (m) => `
-        <div class="flex ${m.sender === 'bot' ? 'justify-end' : 'justify-start'}">
-          <div class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-            m.sender === 'bot'
-              ? 'bg-teal-500/20 border border-teal-400/30 text-teal-50 rounded-br-sm'
-              : 'bg-slate-800/80 border border-white/10 text-slate-200 rounded-bl-sm'
-          }">
-            <p class="whitespace-pre-line">${m.text}</p>
-            <span class="block text-[10px] opacity-60 mt-1 text-right">${m.sender === 'bot' ? 'Robô Nagi' : lead.contactName} • ${m.time}</span>
-          </div>
-        </div>`
-        )
-        .join('');
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-  }
-
-  /* ==================== ESTÚDIO DE PROMPTS & GERADOR ==================== */
-  bindStudio() {
-    document.getElementById('studio-lead-autofill')?.addEventListener('change', (e) => {
-      const lead = this.state.leads.find((l) => l.id === e.target.value);
-      if (lead) this.fillStudioFromLead(lead);
-    });
-
-    ['var-empresa', 'var-cidade', 'var-segmento', 'var-diferencial', 'var-oferta'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('input', () => this.updateStudioPromptText());
-    });
-
-    document.getElementById('btn-copy-prompt')?.addEventListener('click', () => {
-      const txt = document.getElementById('studio-prompt-output').value;
-      navigator.clipboard.writeText(txt);
-      this.toast('Prompt copiado! Cole no Lovable, v0, Cursor ou Antigravity.', 'success');
-    });
-
-    document.getElementById('btn-generate-inside')?.addEventListener('click', () => {
-      this.ocean?.triggerSurge(1.8);
-      this.generateInsideNagi();
-    });
-
-    document.getElementById('tab-studio-lp')?.addEventListener('click', () => {
-      this.studioTab = 'lp';
-      this.renderStudioOutputTabs();
-    });
-
-    document.getElementById('tab-studio-n8n')?.addEventListener('click', () => {
-      this.studioTab = 'n8n';
-      this.renderStudioOutputTabs();
-    });
-
-    document.getElementById('btn-viewport-desktop')?.addEventListener('click', () => {
-      this.previewViewport = 'desktop';
-      document.getElementById('studio-iframe').style.width = '100%';
-    });
-
-    document.getElementById('btn-viewport-mobile')?.addEventListener('click', () => {
-      this.previewViewport = 'mobile';
-      document.getElementById('studio-iframe').style.width = '390px';
-    });
-
-    document.getElementById('btn-download-lp')?.addEventListener('click', () => {
-      if (!this.lastGeneratedHTML) this.generateInsideNagi();
-      const empresa = document.getElementById('var-empresa').value || 'landing-page';
-      this.downloadFile(`${empresa.toLowerCase().replace(/[^a-z0-9]/g, '-')}.html`, this.lastGeneratedHTML, 'text/html');
-    });
-
-    document.getElementById('btn-copy-n8n')?.addEventListener('click', () => {
-      if (!this.lastGeneratedJSON) this.generateInsideNagi();
-      navigator.clipboard.writeText(this.lastGeneratedJSON);
-      this.toast('JSON do Workflow n8n copiado! Importe direto no seu n8n.', 'success');
-    });
-
-    document.getElementById('btn-download-n8n')?.addEventListener('click', () => {
-      if (!this.lastGeneratedJSON) this.generateInsideNagi();
-      this.downloadFile('nagi-workflow-n8n.json', this.lastGeneratedJSON, 'application/json');
-    });
-  }
-
-  renderStudio() {
-    // Populate lead autofill select
-    const autoSel = document.getElementById('studio-lead-autofill');
-    if (autoSel) {
-      autoSel.innerHTML =
-        `<option value="">Selecionar um lead salvo para preencher automático...</option>` +
-        this.state.leads.map((l) => `<option value="${l.id}">${l.company} (${l.segment} — ${l.city})</option>`).join('');
-    }
-
-    // Render prompt library cards
-    const listEl = document.getElementById('prompt-library-list');
-    listEl.innerHTML = PROMPT_TEMPLATES.map((p) => {
-      const active = p.id === this.state.selectedPromptId;
-      return `
-        <button data-prompt-id="${p.id}" class="w-full text-left p-3.5 rounded-xl border transition ${
-        active
-          ? 'bg-teal-500/15 border-teal-400/45'
-          : 'bg-slate-950/55 border-white/10 hover:border-sky-400/35'
-      }">
-          <div class="flex items-center justify-between gap-2 mb-1">
-            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-400/25">${p.category}</span>
-            <span class="text-[10px] text-teal-300 font-semibold">${p.badge}</span>
-          </div>
-          <p class="font-bold text-sm text-white leading-snug">${p.title}</p>
-          <p class="text-xs text-slate-400 mt-1 line-clamp-2">${p.description}</p>
-        </button>`;
-    }).join('');
-
-    listEl.querySelectorAll('[data-prompt-id]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.state.selectedPromptId = btn.dataset.promptId;
-        this.saveState();
-        this.renderStudio();
-      });
-    });
-
-    this.updateStudioPromptText();
-    if (!this.lastGeneratedHTML) this.generateInsideNagi();
-    this.renderStudioOutputTabs();
-  }
-
-  fillStudioFromLead(lead) {
-    document.getElementById('var-empresa').value = lead.company;
-    document.getElementById('var-cidade').value = lead.city;
-    document.getElementById('var-segmento').value = lead.segment;
-    document.getElementById('var-diferencial').value = lead.painPoint;
-    document.getElementById('var-oferta').value = `Atendimento VIP e condição especial (${lead.offerType})`;
-
-    // Pick matching prompt template automatically
-    const segLower = lead.segment.toLowerCase();
-    const match = PROMPT_TEMPLATES.find((p) => segLower.includes(p.segment.toLowerCase().split(' ')[0]));
-    if (match) this.state.selectedPromptId = match.id;
-
-    this.renderStudio();
-    this.generateInsideNagi();
-    this.toast(`Estúdio preenchido com os dados de ${lead.company}!`, 'info');
-  }
-
-  updateStudioPromptText() {
-    const tpl = PROMPT_TEMPLATES.find((p) => p.id === this.state.selectedPromptId) || PROMPT_TEMPLATES[0];
-    const empresa = document.getElementById('var-empresa').value || 'Churrascaria Brasa Nobre';
-    const cidade = document.getElementById('var-cidade').value || 'São Paulo, SP';
-    const segmento = document.getElementById('var-segmento').value || tpl.segment;
-    const diferencial = document.getElementById('var-diferencial').value || 'Cortes Angus na brasa e reserva rápida sem fila';
-    const oferta = document.getElementById('var-oferta').value || 'Drink ou sobremesa cortesia reservando pelo site';
-
-    const filled = tpl.promptText
-      .replaceAll('{{EMPRESA}}', empresa)
-      .replaceAll('{{CIDADE}}', cidade)
-      .replaceAll('{{SEGMENTO}}', segmento)
-      .replaceAll('{{DIFERENCIAL}}', diferencial)
-      .replaceAll('{{OFERTA}}', oferta);
-
-    document.getElementById('studio-prompt-output').value = filled;
-  }
-
-  generateInsideNagi() {
-    const empresa = document.getElementById('var-empresa').value || 'Churrascaria Brasa Nobre';
-    const cidade = document.getElementById('var-cidade').value || 'São Paulo, SP';
-    const segmento = document.getElementById('var-segmento').value || 'Churrascaria';
-    const diferencial = document.getElementById('var-diferencial').value || 'Cortes nobres na brasa e atendimento VIP';
-    const oferta = document.getElementById('var-oferta').value || 'Reserva prioritária + entrada cortesia hoje';
-
-    const lead = this.getSelectedLead();
-    this.lastGeneratedHTML = generateLandingPageHTML({
-      company: empresa,
-      segment: segmento,
-      city: cidade,
-      diferencial,
-      oferta,
-      phone: lead?.phone || '5511998421104'
-    });
-
-    this.lastGeneratedJSON = generateN8nWorkflowJSON({
-      company: empresa,
-      segment: segmento,
-      city: cidade,
-      oferta
-    });
-
-    const iframe = document.getElementById('studio-iframe');
-    if (iframe) iframe.srcdoc = this.lastGeneratedHTML;
-
-    const jsonPre = document.getElementById('studio-n8n-json');
-    if (jsonPre) jsonPre.textContent = this.lastGeneratedJSON;
-
-    this.toast('Preview ao vivo & Workflow n8n gerados dentro do Nagi!', 'success');
-  }
-
-  renderStudioOutputTabs() {
-    const lpWrap = document.getElementById('studio-lp-preview-wrap');
-    const n8nWrap = document.getElementById('studio-n8n-preview-wrap');
-    const tabLp = document.getElementById('tab-studio-lp');
-    const tabN8n = document.getElementById('tab-studio-n8n');
-
-    if (this.studioTab === 'lp') {
-      lpWrap.classList.remove('hidden');
-      n8nWrap.classList.add('hidden');
-      tabLp.classList.add('bg-teal-500/20', 'text-teal-200', 'border-teal-400/40');
-      tabN8n.classList.remove('bg-teal-500/20', 'text-teal-200', 'border-teal-400/40');
-    } else {
-      lpWrap.classList.add('hidden');
-      n8nWrap.classList.remove('hidden');
-      tabN8n.classList.add('bg-teal-500/20', 'text-teal-200', 'border-teal-400/40');
-      tabLp.classList.remove('bg-teal-500/20', 'text-teal-200', 'border-teal-400/40');
-    }
-  }
-
-  /* ==================== HELPERS ==================== */
-  renderAll() {
-    this.renderDashboard();
-    this.renderDiscoveredLeads();
-    this.renderLeadsView();
-    this.renderStudio();
-  }
-
-  addActivity(text, type = 'info') {
-    this.state.activities.unshift({
-      id: Date.now(),
-      text,
-      time: 'Agora',
-      type
-    });
-    this.state.activities = this.state.activities.slice(0, 12);
-  }
-
-  bind3DTilt() {
-    document.querySelectorAll('.tilt-card').forEach((card) => {
-      if (card.dataset.tiltBound) return;
-      card.dataset.tiltBound = '1';
-      card.addEventListener('mousemove', (e) => {
-        const rect = card.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const rx = ((y / rect.height) - 0.5) * -7;
-        const ry = ((x / rect.width) - 0.5) * 7;
-        card.style.setProperty('--mouse-x', `${(x / rect.width) * 100}%`);
-        card.style.setProperty('--mouse-y', `${(y / rect.height) * 100}%`);
-        card.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateZ(4px)`;
-      });
-      card.addEventListener('mouseleave', () => {
-        card.style.transform = 'perspective(900px) rotateX(0deg) rotateY(0deg) translateZ(0px)';
-      });
-    });
-  }
-
-  downloadFile(filename, content, mime) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  toast(message, type = 'info') {
-    const host = document.getElementById('toast-container');
-    if (!host) return;
-    const el = document.createElement('div');
-    const border =
-      type === 'success'
-        ? 'border-teal-400/40 bg-slate-900/95 text-teal-200'
-        : 'border-sky-400/40 bg-slate-900/95 text-sky-200';
-    el.className = `px-4 py-3 rounded-xl border shadow-2xl text-xs sm:text-sm font-medium backdrop-blur-md transition-all duration-300 ${border}`;
-    el.textContent = message;
-    host.appendChild(el);
-    setTimeout(() => {
-      el.style.opacity = '0';
-      el.style.transform = 'translateY(8px)';
-      setTimeout(() => el.remove(), 300);
-    }, 3400);
-  }
+// ---------- utilidades ----------
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const icones = () => window.lucide && window.lucide.createIcons();
+const reais = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+const quando = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms), hoje = new Date();
+  return d.toDateString() === hoje.toDateString()
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+};
+const iniciais = (n) => esc((n || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase());
+const fone = (n) => {
+  const d = String(n || '').replace(/\D/g, '');
+  if (d.length === 13) return `+${d.slice(0, 2)} ${d.slice(2, 4)} ${d.slice(4, 9)}-${d.slice(9)}`;
+  if (d.length === 12) return `+${d.slice(0, 2)} ${d.slice(2, 4)} ${d.slice(4, 8)}-${d.slice(8)}`;
+  return n || '';
+};
+const nomeLead = (l) => l.empresa || l.nome || fone(l.telefone) || 'Sem nome';
+const usuarioIg = (s) => String(s || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/.*$/, '');
+
+function toast(msg, tipo = '') {
+  const t = document.createElement('div');
+  t.className = `toast ${tipo}`;
+  t.textContent = msg;
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), tipo === 'erro' ? 7000 : 4200);
+}
+async function tentar(fn, okMsg) {
+  try { const r = await fn(); if (okMsg) toast(okMsg, 'ok'); return r; }
+  catch (e) { toast(e.message, 'erro'); return null; }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  window.nagiApp = new NagiApp();
-});
+// ---------- modelos de mensagem ----------
+const MODELOS = {
+  site: { nome: 'Site', texto: (l, a) => l.site
+    ? `Oi, tudo bem? Aqui é o ${a}, eu desenvolvo sites e automações. Dei uma olhada no site da ${nomeLead(l)} e vi uns ajustes rápidos que trazem mais cliente pelo celular (velocidade, botão direto para o WhatsApp e aparecer melhor no Google). Posso te mostrar em 2 minutos?`
+    : `Oi, tudo bem? Aqui é o ${a}, eu desenvolvo sites. Vi a ${nomeLead(l)} no Google${l.nota ? ` (${l.nota}★)` : ''} e reparei que vocês ainda não têm um site próprio. Faço páginas rápidas, com botão direto para o WhatsApp e que aparecem no Google. Posso te mostrar um exemplo de ${l.segmento || 'negócio parecido'}?` },
+  atendimento: { nome: 'Atendimento automático', texto: (l, a) =>
+    `Oi, tudo bem? Aqui é o ${a}. Eu monto atendimento automático para negócios como a ${nomeLead(l)}: responde na hora, a qualquer hora, tira as dúvidas mais comuns e passa para vocês quando o cliente quer fechar. Faz sentido eu te mostrar como ficaria para ${l.segmento || 'vocês'}?` },
+  previa: { nome: 'Prévia pronta', texto: (l, a) =>
+    `Oi, tudo bem? Aqui é o ${a}. Montei uma prévia de página para a ${nomeLead(l)}, sem compromisso, para vocês verem como ficaria com os serviços e o botão do WhatsApp. Posso te mandar?` },
+  retomar: { nome: 'Retomar', texto: (l, a) =>
+    `Oi, tudo bem? Passando só para saber se você viu minha mensagem sobre a ${nomeLead(l)}. Se não for o momento, sem problema, é só me dizer.` },
+};
+const MODELO_IG = (l, a) =>
+  `Oi! Aqui é o ${a}, desenvolvo sites e automações. Curti o perfil da ${nomeLead(l)}${l.cidade ? ` aqui de ${l.cidade}` : ''}. Vocês já têm um site ou atendimento automático? Tenho uma ideia rápida que pode trazer mais cliente pelo celular. Posso te mostrar?`;
+
+// ---------- navegação ----------
+function irPara(tela) {
+  E.tela = tela;
+  $('#gaveta').hidden = true;
+  fecharModal();
+  document.body.className = `tela-${tela}`;
+  $$('.menu button').forEach((b) => b.classList.toggle('ativo', b.dataset.tela === tela));
+  $$('.tela').forEach((s) => (s.hidden = s.id !== `tela-${tela}`));
+  window.oceano && window.oceano.setCalmo(tela === 'painel' ? 0 : 1);
+  ({ painel: renderPainel, prospectar: renderProspeccao, leads: renderKanban, whatsapp: abrirWhatsApp,
+     fila: carregarFila, instagram: carregarIg, estudio: renderEstudio, ajustes: renderAjustes })[tela]?.();
+  scrollTo({ top: 0 });
+}
+
+// ---------- carregamento ----------
+async function carregarLeads() { E.leads = (await get('/leads')) || []; atualizarBadges(); }
+async function carregarMetricas() { E.metricas = await get('/metricas'); }
+async function carregarStatusWa() {
+  const antes = E.wa?.estado;
+  try { E.wa = await get('/wa/status'); } catch { E.wa = { estado: 'desligado' }; }
+  pintarStatusWa();
+  if (E.tela === 'whatsapp' && antes && antes !== E.wa.estado) abrirWhatsApp();
+}
+async function contarFila() {
+  try { const p = await get('/fila?status=pendente'); $('#badge-fila').textContent = p.length || ''; $('#badge-fila').classList.toggle('quente', p.length > 0); return p; } catch { return []; }
+}
+function atualizarBadges() {
+  const resp = E.leads.filter((l) => l.status === 'respondeu').length;
+  $('#badge-leads').textContent = resp || '';
+  $('#badge-leads').classList.toggle('quente', resp > 0);
+}
+
+function pintarStatusWa() {
+  const el = $('#status-wa-lateral'), w = E.wa || {};
+  el.className = `status-wa ${w.estado === 'conectado' ? 'on' : w.estado === 'qr' ? 'qr' : ''}`;
+  const txt = { conectado: w.eu ? `${w.eu.nome || 'conectado'} · ${fone(w.eu.numero)}` : 'conectado', qr: 'esperando o QR', conectando: 'conectando…', desconectado: 'desconectado', desligado: 'servidor desligado' };
+  $('.t2', el).textContent = txt[w.estado] || w.estado || '—';
+  $('#cota-lateral').textContent = w.limiteDia ? `Hoje: ${w.enviadosHoje || 0} de ${w.limiteDia} conversas novas · modo ${w.modo === 'auto' ? 'automático' : 'aprovação'}` : '';
+  $('#badge-wa').textContent = w.estado === 'qr' ? '!' : '';
+}
+
+// ---------- PAINEL ----------
+async function renderPainel() {
+  const h = new Date().getHours();
+  const [jp, oi] = h < 12 ? ['おはよう', 'Bom dia'] : h < 18 ? ['こんにちは', 'Boa tarde'] : ['こんばんは', 'Boa noite'];
+  $('#hero-jp').textContent = jp;
+  $('#hero-saudacao').textContent = `${oi}, Jerry`;
+  await Promise.all([tentar(carregarMetricas), tentar(carregarLeads)]);
+  const m = E.metricas || { porStatus: {}, enviadosPorDia: [] };
+  const ps = m.porStatus || {};
+  const novos = ps.novo || 0, resp = ps.respondeu || 0;
+  const pend = (await contarFila()).length;
+  $('#hero-frase').textContent = resp
+    ? `${resp} ${resp === 1 ? 'lead respondeu' : 'leads responderam'} e ${resp === 1 ? 'espera' : 'esperam'} você. ${pend ? `Mais ${pend} na fila para aprovar.` : ''}`
+    : novos ? `O mar está calmo. ${novos} ${novos === 1 ? 'lead novo espera' : 'leads novos esperam'} a primeira mensagem.`
+    : 'O mar está calmo. Que tal buscar novos leads hoje?';
+
+  const k = [
+    ['Leads', '縁', m.leads ?? E.leads.length, `${novos} sem abordagem`],
+    ['Abordados hoje', '声', m.abordadosHoje ?? 0, E.wa.limiteDia ? `limite ${E.wa.limiteDia}/dia` : 'WhatsApp'],
+    ['Responderam', '返', m.respostas ?? resp, 'no total'],
+    ['Reuniões', '会', m.reunioes ?? ps.reuniao ?? 0, 'marcadas'],
+    ['Fechados', '成', m.fechados ?? ps.fechado ?? 0, 'projetos'],
+    ['Faturamento', '金', reais(m.faturamento), 'soma dos fechados'],
+  ];
+  $('#kpis').innerHTML = k.map(([r, j, n, d], i) => `<div class="kpi ${i === 5 ? 'destaque' : ''}"><p class="rot">${r}<span>${j}</span></p><p class="num">${esc(n)}</p><p class="det">${esc(d)}</p></div>`).join('');
+
+  const total = Math.max(1, ...ETAPAS.map(([s]) => ps[s] || 0));
+  $('#funil').innerHTML = ETAPAS.map(([s, n]) => `<div class="funil-linha"><span>${n}</span><div class="barra"><i style="width:${((ps[s] || 0) / total) * 100}%"></i></div><b>${ps[s] || 0}</b></div>`).join('');
+
+  desenharGrafico(m.enviadosPorDia || []);
+  renderProximas(pend);
+}
+
+function desenharGrafico(dias) {
+  if (!window.Chart) return;
+  const ctx = $('#graf-envios');
+  const rot = dias.map((d) => d.dia?.slice(5).split('-').reverse().join('/') || '');
+  E.grafico?.destroy();
+  E.grafico = new Chart(ctx, {
+    type: 'line',
+    data: { labels: rot, datasets: [
+      { label: 'Enviadas', data: dias.map((d) => d.enviados), borderColor: '#7cc7ff', backgroundColor: 'rgba(124,199,255,.12)', fill: true, tension: .38, pointRadius: 2 },
+      { label: 'Respostas', data: dias.map((d) => d.respostas), borderColor: '#e7effc', backgroundColor: 'transparent', borderDash: [5, 4], tension: .38, pointRadius: 2 },
+    ] },
+    options: {
+      maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: '#93a8c9', boxWidth: 12, font: { family: 'Plus Jakarta Sans' } } } },
+      scales: {
+        x: { ticks: { color: '#5f7499' }, grid: { color: 'rgba(130,175,255,.06)' } },
+        y: { beginAtZero: true, ticks: { color: '#5f7499', precision: 0 }, grid: { color: 'rgba(130,175,255,.06)' } },
+      },
+    },
+  });
+}
+
+function renderProximas(pend) {
+  const acoes = [];
+  const resp = E.leads.filter((l) => l.status === 'respondeu');
+  resp.slice(0, 4).forEach((l) => acoes.push({ ic: 'message-circle-reply', t: `${nomeLead(l)} respondeu`, d: 'Responda rápido: quem responde em minutos fecha mais.', fn: () => abrirLead(l.id) }));
+  if (pend) acoes.push({ ic: 'list-checks', t: `${pend} ${pend === 1 ? 'mensagem' : 'mensagens'} na fila`, d: 'Preparadas pela IA ou por você, esperando aprovação.', fn: () => irPara('fila') });
+  const novos = E.leads.filter((l) => l.status === 'novo');
+  if (novos.length) acoes.push({ ic: 'send', t: `${novos.length} ${novos.length === 1 ? 'lead novo' : 'leads novos'} sem mensagem`, d: 'Abra o quadro e escolha quem abordar hoje.', fn: () => irPara('leads') });
+  if (E.wa.estado && E.wa.estado !== 'conectado') acoes.push({ ic: 'qr-code', t: 'Conectar o WhatsApp', d: 'Escaneie o QR com o celular para o Nagi e a IA usarem seu número.', fn: () => irPara('whatsapp') });
+  $('#proximas').innerHTML = acoes.length
+    ? acoes.map((a, i) => `<div class="acao" data-i="${i}"><div class="ic"><i data-lucide="${a.ic}"></i></div><div><p class="t">${esc(a.t)}</p><p class="d">${esc(a.d)}</p></div></div>`).join('')
+    : '<div class="vazio"><p class="jp">静</p><p>Nada pendente. Bom momento para prospectar.</p></div>';
+  $$('#proximas .acao').forEach((el) => (el.onclick = acoes[+el.dataset.i].fn));
+  icones();
+}
+
+// ---------- PROSPECTAR ----------
+function renderProspeccao() {
+  const box = $('#resultados-prospeccao');
+  if (!E.resultados.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="barra-acoes">
+      <p class="dica">${E.resultados.length} resultados para <b>${esc(E.ultimaBusca?.busca)}</b> em <b>${esc(E.ultimaBusca?.cidade)}</b>${E.ultimaBusca?.servidoPor ? ` · via ${esc(E.ultimaBusca.servidoPor)}` : ''}</p>
+      <div class="linha-botoes">
+        <button class="btn btn-vidro btn-pequeno" id="sel-todos">Marcar os que têm telefone</button>
+        <button class="btn btn-claro btn-pequeno" id="add-sel"><i data-lucide="plus"></i>Adicionar aos leads</button>
+      </div>
+    </div>
+    <table class="tabela"><thead><tr><th></th><th>Empresa</th><th>Nota</th><th>Telefone</th><th>Site</th><th>Endereço</th></tr></thead><tbody>
+    ${E.resultados.map((r, i) => `<tr>
+      <td><input type="checkbox" data-i="${i}" ${r.jaEhLead ? 'disabled' : ''} /></td>
+      <td><p class="nome" style="margin:0">${esc(r.nome)}</p><p class="menor" style="margin:0">${esc(r.categoria || '')} ${r.jaEhLead ? '<span class="selo cinza">já é lead</span>' : ''}</p></td>
+      <td>${r.nota ? `${esc(r.nota)}★ <span class="menor">(${esc(r.avaliacoes ?? 0)})</span>` : '<span class="menor">—</span>'}</td>
+      <td>${r.telefone ? esc(fone(r.telefone)) : '<span class="menor">sem telefone</span>'}</td>
+      <td>${r.site ? `<a href="${esc(r.site)}" target="_blank" rel="noopener">abrir</a>` : '<span class="selo alerta">sem site</span>'}</td>
+      <td class="menor">${esc(r.endereco || '')}</td></tr>`).join('')}
+    </tbody></table>`;
+  $('#sel-todos').onclick = () => $$('input[type=checkbox]', box).forEach((c) => { if (!c.disabled) c.checked = !!E.resultados[+c.dataset.i].telefone; });
+  $('#add-sel').onclick = async () => {
+    const sel = $$('input[type=checkbox]:checked', box).map((c) => E.resultados[+c.dataset.i]);
+    if (!sel.length) return toast('Marque pelo menos um resultado.');
+    const novos = sel.map((r) => ({
+      nome: r.nome, empresa: r.nome, telefone: r.telefone || '', site: r.site || '', cidade: E.ultimaBusca.cidade,
+      segmento: E.ultimaBusca.busca, origem: 'Google Maps (treg)', nota: r.nota || null,
+      notas: [r.categoria, r.endereco, r.nota ? `${r.nota}★ (${r.avaliacoes ?? 0} avaliações)` : ''].filter(Boolean).join(' · '),
+    }));
+    const r = await tentar(() => post('/leads', novos));
+    if (r) {
+      toast(`${Array.isArray(r.criados) ? r.criados.length : sel.length} leads adicionados`, 'ok');
+      sel.forEach((x) => (x.jaEhLead = true));
+      await carregarLeads(); renderProspeccao();
+    }
+  };
+  icones();
+}
+
+// ---------- LEADS ----------
+function leadsFiltrados() {
+  const q = E.buscaLeads.trim().toLowerCase();
+  return q ? E.leads.filter((l) => [l.nome, l.empresa, l.cidade, l.segmento, l.telefone, l.instagram].join(' ').toLowerCase().includes(q)) : E.leads;
+}
+async function renderKanban() {
+  await tentar(carregarLeads);
+  const lista = leadsFiltrados();
+  $('#kanban').innerHTML = ETAPAS.map(([s, n, j]) => {
+    const cards = lista.filter((l) => (l.status || 'novo') === s);
+    return `<div class="coluna" data-st="${s}"><div class="coluna-topo"><h3><span class="kanji" style="font-family:var(--serifa);color:var(--apagado);margin-right:6px">${j}</span>${n}</h3><span>${cards.length}</span></div>
+      ${cards.map((l) => `<div class="card-lead" draggable="true" data-id="${esc(l.id)}">
+        <p class="n">${esc(nomeLead(l))}</p><p class="c">${esc([l.segmento, l.cidade].filter(Boolean).join(' · '))}${l.valor ? ` · ${reais(l.valor)}` : ''}</p>
+        <div class="icones"><i data-lucide="phone" class="${l.telefone ? 'tem' : ''}"></i><i data-lucide="instagram" class="${l.instagram ? 'tem' : ''}"></i><i data-lucide="globe" class="${l.site ? 'tem' : ''}"></i></div>
+      </div>`).join('')}</div>`;
+  }).join('');
+  $$('.card-lead').forEach((c) => {
+    c.onclick = () => abrirLead(c.dataset.id);
+    c.ondragstart = (e) => e.dataTransfer.setData('text/plain', c.dataset.id);
+  });
+  $$('.coluna').forEach((col) => {
+    col.ondragover = (e) => { e.preventDefault(); col.classList.add('sobre'); };
+    col.ondragleave = () => col.classList.remove('sobre');
+    col.ondrop = async (e) => {
+      e.preventDefault(); col.classList.remove('sobre');
+      const id = e.dataTransfer.getData('text/plain');
+      if (await tentar(() => patch(`/leads/${id}`, { status: col.dataset.st }))) renderKanban();
+    };
+  });
+  icones();
+}
+
+async function abrirLead(id) {
+  const l = await tentar(() => get(`/leads/${id}`));
+  if (!l) return;
+  const g = $('#gaveta');
+  g.hidden = false;
+  g.innerHTML = `
+    <button class="btn btn-vidro btn-pequeno fechar" id="fechar-gaveta"><i data-lucide="x"></i></button>
+    <p class="jp">縁 lead</p><h2>${esc(nomeLead(l))}</h2>
+    <p class="sub">${esc([l.segmento, l.cidade, l.origem].filter(Boolean).join(' · '))}</p>
+    <div class="linha-botoes" style="margin-top:14px">
+      <button class="btn btn-claro" id="g-wa" ${l.telefone ? '' : 'disabled'}><i data-lucide="message-circle"></i>WhatsApp</button>
+      <button class="btn btn-vidro" id="g-ig" ${l.instagram ? '' : 'disabled'}><i data-lucide="instagram"></i>DM no Instagram</button>
+      <button class="btn btn-vidro" id="g-lp"><i data-lucide="sparkles"></i>Prévia de site</button>
+    </div>
+    <form class="campos" id="form-lead">
+      <label>Empresa<input name="empresa" value="${esc(l.empresa)}" /></label>
+      <label>Nome do contato<input name="nome" value="${esc(l.nome)}" /></label>
+      <label>Telefone<input name="telefone" value="${esc(l.telefone)}" /></label>
+      <label>Instagram<input name="instagram" value="${esc(l.instagram)}" placeholder="@perfil" /></label>
+      <label>Site<input name="site" value="${esc(l.site)}" /></label>
+      <label>Cidade<input name="cidade" value="${esc(l.cidade)}" /></label>
+      <label>Segmento<input name="segmento" value="${esc(l.segmento)}" /></label>
+      <label>Etapa<select name="status">${ETAPAS.map(([s, n]) => `<option value="${s}" ${l.status === s ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label>Valor (R$)<input name="valor" type="number" min="0" step="10" value="${esc(l.valor ?? '')}" /></label>
+      <label class="largo">Notas<textarea name="notas">${esc(l.notas)}</textarea></label>
+      <div class="largo linha-botoes"><button class="btn btn-ok" type="submit"><i data-lucide="check"></i>Salvar</button><button class="btn btn-perigo" type="button" id="g-apagar"><i data-lucide="trash-2"></i>Apagar</button></div>
+    </form>
+    <h3 style="margin:8px 0 4px;font-size:13px">Histórico</h3>
+    <div class="historico">${(l.historico || []).slice().reverse().map((h) => `<div>${esc(h.texto)}<small>${esc(h.tipo || '')} · ${new Date(h.quando).toLocaleString('pt-BR')}</small></div>`).join('') || '<div class="dica">Sem histórico ainda.</div>'}</div>`;
+  $('#fechar-gaveta').onclick = () => (g.hidden = true);
+  $('#form-lead').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    d.valor = d.valor ? Number(d.valor) : null;
+    if (await tentar(() => patch(`/leads/${l.id}`, d), 'Lead salvo')) { g.hidden = true; if (E.tela === 'leads') renderKanban(); }
+  };
+  $('#g-apagar').onclick = async () => {
+    if (!confirm(`Apagar ${nomeLead(l)}?`)) return;
+    if (await tentar(() => del(`/leads/${l.id}`), 'Lead apagado')) { g.hidden = true; renderKanban(); }
+  };
+  $('#g-wa').onclick = () => compor(l);
+  $('#g-ig').onclick = () => comporIg(l);
+  $('#g-lp').onclick = () => { g.hidden = true; E.previaDados = { company: nomeLead(l), segment: l.segmento, city: l.cidade, phone: l.telefone }; irPara('estudio'); };
+  icones();
+}
+
+function modal(html) {
+  const m = $('#modal');
+  $('#modal-corpo').innerHTML = html;
+  m.hidden = false;
+  m.onclick = (e) => { if (e.target === m) m.hidden = true; };
+  icones();
+  return $('#modal-corpo');
+}
+const fecharModal = () => ($('#modal').hidden = true);
+
+function compor(l) {
+  const assinatura = E.config.assinatura || 'Jerry';
+  const corpo = modal(`
+    <h2>Mensagem para ${esc(nomeLead(l))}</h2>
+    <p class="sub">${esc(fone(l.telefone))} · hoje: ${E.wa.enviadosHoje || 0} de ${E.wa.limiteDia || '—'} conversas novas</p>
+    <div class="modelos">${Object.entries(MODELOS).map(([k, m]) => `<button class="btn btn-vidro btn-pequeno" data-m="${k}">${m.nome}</button>`).join('')}</div>
+    <textarea id="txt-msg" style="width:100%;min-height:170px"></textarea>
+    <p class="dica" id="conta-msg"></p>
+    <div class="rodape">
+      <button class="btn btn-vidro" id="m-cancelar">Cancelar</button>
+      <button class="btn btn-vidro" id="m-fila"><i data-lucide="list-plus"></i>Pôr na fila</button>
+      <button class="btn btn-claro" id="m-enviar" ${E.wa.estado === 'conectado' ? '' : 'disabled title="Conecte o WhatsApp primeiro"'}><i data-lucide="send"></i>Enviar agora</button>
+    </div>`);
+  const txt = $('#txt-msg', corpo);
+  const conta = () => ($('#conta-msg', corpo).textContent = `${txt.value.length} caracteres · curta e pessoal funciona melhor`);
+  $$('[data-m]', corpo).forEach((b) => (b.onclick = () => { txt.value = MODELOS[b.dataset.m].texto(l, assinatura); conta(); }));
+  txt.value = MODELOS[l.status === 'abordado' ? 'retomar' : 'site'].texto(l, assinatura); conta();
+  txt.oninput = conta;
+  $('#m-cancelar', corpo).onclick = fecharModal;
+  $('#m-fila', corpo).onclick = async () => {
+    if (await tentar(() => post('/fila', { para: l.telefone, texto: txt.value, leadId: l.id, origem: 'ui' }), 'Mensagem na fila')) { fecharModal(); $('#gaveta').hidden = true; contarFila(); }
+  };
+  $('#m-enviar', corpo).onclick = async () => {
+    const b = $('#m-enviar', corpo); b.disabled = true; b.textContent = 'Enviando…';
+    const r = await tentar(() => post('/wa/enviar', { para: l.telefone, texto: txt.value, leadId: l.id, origem: 'ui' }));
+    if (r && !r.erro) {
+      toast('Mensagem enviada', 'ok');
+      if ((l.status || 'novo') === 'novo') await tentar(() => patch(`/leads/${l.id}`, { status: 'abordado' }));
+      fecharModal(); $('#gaveta').hidden = true; carregarStatusWa(); if (E.tela === 'leads') renderKanban();
+    } else { b.disabled = false; b.textContent = 'Enviar agora'; }
+  };
+}
+
+function comporIg(l) {
+  const corpo = modal(`
+    <h2>DM para @${esc(usuarioIg(l.instagram))}</h2>
+    <p class="sub">O Nagi não envia DM sozinho (o Instagram bloqueia conta que faz isso). Guarde o rascunho e envie com um clique.</p>
+    <textarea id="txt-ig" style="width:100%;min-height:150px">${esc(MODELO_IG(l, E.config.assinatura || 'Jerry'))}</textarea>
+    <div class="rodape">
+      <button class="btn btn-vidro" id="ig-cancelar">Cancelar</button>
+      <button class="btn btn-vidro" id="ig-salvar"><i data-lucide="save"></i>Guardar rascunho</button>
+      <button class="btn btn-claro" id="ig-abrir"><i data-lucide="external-link"></i>Copiar e abrir a DM</button>
+    </div>`);
+  $('#ig-cancelar', corpo).onclick = fecharModal;
+  const salvar = () => post('/instagram/rascunho', { leadId: l.id, usuario: usuarioIg(l.instagram), texto: $('#txt-ig', corpo).value });
+  $('#ig-salvar', corpo).onclick = async () => { if (await tentar(salvar, 'Rascunho guardado')) fecharModal(); };
+  $('#ig-abrir', corpo).onclick = async () => {
+    const r = await tentar(salvar);
+    await copiarEAbrirIg(usuarioIg(l.instagram), $('#txt-ig', corpo).value, r?.id);
+    fecharModal();
+  };
+}
+
+async function copiarEAbrirIg(usuario, texto, id) {
+  try { await navigator.clipboard.writeText(texto); toast('Texto copiado. Cole na conversa e envie.', 'ok'); } catch { toast('Não consegui copiar: selecione o texto e copie.', 'erro'); }
+  window.open(`https://ig.me/m/${encodeURIComponent(usuario)}`, '_blank', 'noopener');
+  if (id && confirm('Enviou a DM? Clique em OK para marcar como feita.')) { await tentar(() => post(`/instagram/rascunho/${id}/feito`)); if (E.tela === 'instagram') carregarIg(); }
+}
+
+function novoLead() {
+  const corpo = modal(`
+    <h2>Novo lead</h2>
+    <form class="campos" id="form-novo">
+      <label>Empresa<input name="empresa" required /></label><label>Contato<input name="nome" /></label>
+      <label>Telefone<input name="telefone" placeholder="83 99999-9999" /></label><label>Instagram<input name="instagram" placeholder="@perfil" /></label>
+      <label>Site<input name="site" /></label><label>Cidade<input name="cidade" /></label>
+      <label class="largo">Segmento<input name="segmento" /></label>
+      <label class="largo">Notas<textarea name="notas"></textarea></label>
+      <div class="largo rodape" style="margin:0"><button type="button" class="btn btn-vidro" id="n-cancelar">Cancelar</button><button class="btn btn-claro">Adicionar</button></div>
+    </form>`);
+  $('#n-cancelar', corpo).onclick = fecharModal;
+  $('#form-novo', corpo).onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    if (await tentar(() => post('/leads', { ...d, origem: 'manual' }), 'Lead adicionado')) { fecharModal(); renderKanban(); }
+  };
+}
+
+function importar() {
+  const corpo = modal(`
+    <h2>Importar leads</h2>
+    <p class="sub">Uma linha por lead, separando por ponto e vírgula:<br><code>empresa; telefone; cidade; segmento; instagram; site</code></p>
+    <textarea id="txt-imp" style="width:100%;min-height:200px" placeholder="Barbearia Ronin; 83 99999-0000; Cajazeiras PB; barbearia; @barbeariaronin;"></textarea>
+    <div class="rodape"><button class="btn btn-vidro" id="i-cancelar">Cancelar</button><button class="btn btn-claro" id="i-ok">Importar</button></div>`);
+  $('#i-cancelar', corpo).onclick = fecharModal;
+  $('#i-ok', corpo).onclick = async () => {
+    const linhas = $('#txt-imp', corpo).value.split('\n').map((s) => s.trim()).filter(Boolean);
+    const leads = linhas.map((s) => { const [empresa, telefone, cidade, segmento, instagram, site] = s.split(';').map((x) => (x || '').trim()); return { empresa, nome: empresa, telefone, cidade, segmento, instagram, site, origem: 'importado' }; }).filter((l) => l.empresa);
+    if (!leads.length) return toast('Nada para importar.');
+    const r = await tentar(() => post('/leads', leads));
+    if (r) { toast(`${r.criados?.length ?? leads.length} importados${r.duplicados?.length ? `, ${r.duplicados.length} já existiam` : ''}`, 'ok'); fecharModal(); renderKanban(); }
+  };
+}
+
+// ---------- WHATSAPP ----------
+async function abrirWhatsApp() {
+  await carregarStatusWa();
+  renderConexao();
+  if (E.wa.estado === 'conectado') await carregarConversas();
+  else $('#wa-conversas').innerHTML = '';
+}
+
+function renderConexao() {
+  const w = E.wa, box = $('#wa-conexao');
+  if (w.estado === 'conectado') {
+    box.innerHTML = `<div class="wa-eu"><div style="display:flex;gap:10px;align-items:center"><div class="avatar">${iniciais(w.eu?.nome || 'J')}</div><div><p style="margin:0;font-weight:700">${esc(w.eu?.nome || 'Conectado')}</p><p class="dica" style="margin:0">${esc(fone(w.eu?.numero))}</p></div></div><span class="selo ok">conectado</span></div>`;
+  } else if (w.estado === 'qr' && w.qr) {
+    box.innerHTML = `<div class="wa-qr"><img src="${esc(w.qr)}" alt="QR do WhatsApp" /><ol><li>No celular, abra o WhatsApp</li><li>Toque em <b>⋮ → Aparelhos conectados → Conectar aparelho</b></li><li>Aponte para este QR</li></ol></div>`;
+  } else {
+    box.innerHTML = `<div class="vazio" style="padding:18px 6px"><p class="jp">話</p><p>WhatsApp ${w.estado === 'conectando' ? 'conectando…' : 'desconectado'}.</p>
+      <button class="btn btn-claro" id="wa-conectar"><i data-lucide="qr-code"></i>Conectar com QR</button>
+      <p class="dica" style="margin-top:12px">Robô em número pessoal pode ser banido pelo WhatsApp. O Nagi segura no máximo ${E.config.limiteDia || 25} conversas novas por dia, com intervalo entre envios.</p></div>`;
+    $('#wa-conectar').onclick = async () => { await tentar(() => post('/wa/conectar')); setTimeout(abrirWhatsApp, 1500); };
+  }
+  icones();
+}
+
+async function carregarConversas() {
+  E.conversas = (await tentar(() => get('/wa/conversas?limite=60'))) || [];
+  renderConversas();
+}
+function renderConversas() {
+  const q = E.buscaConversas.toLowerCase();
+  const lista = E.conversas.filter((c) => !q || `${c.nome} ${c.numero}`.toLowerCase().includes(q));
+  $('#wa-conversas').innerHTML = lista.map((c) => `<div class="conversa ${c.jid === E.chatJid ? 'ativa' : ''}" data-jid="${esc(c.jid)}">
+    <div class="avatar">${iniciais(c.nome || c.numero)}</div>
+    <div class="meio"><p style="font-weight:700">${esc(c.nome || fone(c.numero))}</p><p class="ult">${esc(c.ultimaMensagem || '')}</p></div>
+    <div class="lado">${quando(c.quando)}<br>${c.naoLidas ? `<em>${c.naoLidas}</em>` : ''}</div></div>`).join('') || '<p class="dica" style="padding:10px">Nenhuma conversa ainda.</p>';
+  $$('#wa-conversas .conversa').forEach((el) => (el.onclick = () => abrirChat(el.dataset.jid)));
+}
+
+async function abrirChat(jid) {
+  E.chatJid = jid;
+  renderConversas();
+  const c = E.conversas.find((x) => x.jid === jid) || { jid };
+  const lead = E.leads.find((l) => String(l.telefone || '').replace(/\D/g, '').endsWith(String(c.numero || '').replace(/\D/g, '').slice(-8)) && c.numero);
+  $('#wa-chat').innerHTML = `
+    <div class="chat-topo"><div class="avatar">${iniciais(c.nome || c.numero)}</div><div style="flex:1"><p style="margin:0;font-weight:700">${esc(c.nome || fone(c.numero))}</p><p class="dica" style="margin:0">${esc(fone(c.numero))}${lead ? ` · lead: ${esc(NOME_ETAPA[lead.status] || lead.status)}` : ''}</p></div>
+    ${lead ? `<button class="btn btn-vidro btn-pequeno" id="chat-lead"><i data-lucide="user"></i>Abrir lead</button>` : `<button class="btn btn-vidro btn-pequeno" id="chat-virar-lead"><i data-lucide="user-plus"></i>Virar lead</button>`}</div>
+    <div class="mensagens" id="mensagens"></div>
+    <form class="enviar" id="form-chat"><textarea id="txt-chat" placeholder="Escreva… (Enter envia, Shift+Enter quebra linha)"></textarea><button class="btn btn-claro"><i data-lucide="send"></i></button></form>`;
+  if (lead) $('#chat-lead').onclick = () => abrirLead(lead.id);
+  else $('#chat-virar-lead').onclick = async () => { if (await tentar(() => post('/leads', { nome: c.nome, empresa: c.nome, telefone: c.numero, origem: 'WhatsApp', status: 'respondeu' }), 'Virou lead')) { await carregarLeads(); abrirChat(jid); } };
+  const txt = $('#txt-chat');
+  txt.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#form-chat').requestSubmit(); } };
+  $('#form-chat').onsubmit = async (e) => {
+    e.preventDefault();
+    const t = txt.value.trim(); if (!t) return;
+    txt.value = '';
+    if (await tentar(() => post('/wa/enviar', { para: jid, texto: t, leadId: lead?.id, origem: 'ui' }))) carregarMensagens();
+    else txt.value = t;
+  };
+  icones();
+  carregarMensagens();
+}
+
+async function carregarMensagens() {
+  if (!E.chatJid) return;
+  const box = $('#mensagens'); if (!box) return;
+  const msgs = (await tentar(() => get(`/wa/mensagens?jid=${encodeURIComponent(E.chatJid)}&limite=60`))) || [];
+  const noFim = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.innerHTML = msgs.map((m) => `<div class="bolha ${m.deMim ? 'minha' : 'dele'}">${esc(m.texto || '[mídia]')}<small>${quando(m.quando)}</small></div>`).join('') || '<p class="dica">Sem mensagens carregadas ainda.</p>';
+  if (noFim || box.dataset.primeira !== '1') { box.scrollTop = box.scrollHeight; box.dataset.primeira = '1'; }
+}
+
+// ---------- FILA ----------
+async function carregarFila() {
+  $$('#abas-fila button').forEach((b) => b.classList.toggle('ativo', b.dataset.st === E.filtroFila));
+  E.fila = (await tentar(() => get(`/fila?status=${E.filtroFila}`))) || [];
+  contarFila();
+  const lista = $('#lista-fila');
+  if (!E.fila.length) { lista.innerHTML = `<div class="cartao vazio" style="grid-column:1/-1"><p class="jp">待</p><p>Nada ${E.filtroFila === 'pendente' ? 'esperando aprovação' : E.filtroFila === 'aprovado' ? 'aprovado esperando a vez' : 'aqui'}.</p></div>`; return; }
+  const pend = E.filtroFila === 'pendente';
+  lista.innerHTML = E.fila.map((f) => `<div class="item-fila" data-id="${esc(f.id)}">
+    <div class="topo"><div><p class="quem">${esc(f.nome || 'Contato')}</p><p class="num">${esc(fone(f.para))}</p></div>
+      <span class="selo ${f.origem === 'mcp' ? '' : 'cinza'}">${f.origem === 'mcp' ? 'IA (MCP)' : 'você'}</span></div>
+    ${pend ? `<textarea>${esc(f.texto)}</textarea>` : `<p style="margin:0;white-space:pre-wrap">${esc(f.texto)}</p>`}
+    ${f.erro ? `<p class="dica" style="color:var(--erro)">${esc(f.erro)}</p>` : ''}
+    <p class="dica" style="margin:0">${new Date(f.criadoEm).toLocaleString('pt-BR')}${f.enviadoEm ? ` · enviada ${new Date(f.enviadoEm).toLocaleString('pt-BR')}` : ''}</p>
+    ${pend ? `<div class="linha-botoes"><button class="btn btn-ok btn-pequeno" data-a="aprovar"><i data-lucide="send"></i>Aprovar e enviar</button><button class="btn btn-vidro btn-pequeno" data-a="salvar">Salvar texto</button><button class="btn btn-perigo btn-pequeno" data-a="rejeitar">Rejeitar</button></div>` : ''}
+  </div>`).join('');
+  $$('.item-fila', lista).forEach((el) => {
+    const id = el.dataset.id;
+    $$('[data-a]', el).forEach((b) => (b.onclick = async () => {
+      const texto = $('textarea', el)?.value;
+      if (b.dataset.a === 'salvar') return tentar(() => patch(`/fila/${id}`, { texto }), 'Texto salvo');
+      if (b.dataset.a === 'aprovar') {
+        const f = E.fila.find((x) => x.id === id);
+        if (texto !== f.texto) await tentar(() => patch(`/fila/${id}`, { texto }));
+        b.disabled = true;
+        if (await tentar(() => post(`/fila/${id}/aprovar`), 'Aprovada: sai respeitando o intervalo')) carregarFila();
+        else b.disabled = false;
+      }
+      if (b.dataset.a === 'rejeitar' && (await tentar(() => post(`/fila/${id}/rejeitar`)))) carregarFila();
+    }));
+  });
+  icones();
+}
+
+// ---------- INSTAGRAM ----------
+async function carregarIg() {
+  E.rascunhos = (await tentar(() => get('/instagram/rascunhos'))) || [];
+  const pend = E.rascunhos.filter((r) => !r.feito);
+  $('#badge-ig').textContent = pend.length || '';
+  const lista = $('#lista-ig');
+  if (!E.rascunhos.length) { lista.innerHTML = '<div class="cartao vazio" style="grid-column:1/-1"><p class="jp">写</p><p>Sem rascunhos. Abra um lead com Instagram e clique em “DM no Instagram”, ou peça para a IA preparar pelo MCP.</p></div>'; return; }
+  lista.innerHTML = E.rascunhos.map((r) => `<div class="item-fila" data-id="${esc(r.id)}">
+    <div class="topo"><p class="quem">@${esc(r.usuario)}</p><span class="selo ${r.feito ? 'ok' : 'alerta'}">${r.feito ? 'enviada' : 'para enviar'}</span></div>
+    <textarea>${esc(r.texto)}</textarea>
+    ${r.feito ? '' : '<div class="linha-botoes"><button class="btn btn-claro btn-pequeno" data-a="abrir"><i data-lucide="external-link"></i>Copiar e abrir a DM</button><button class="btn btn-vidro btn-pequeno" data-a="feito">Marcar como enviada</button></div>'}
+  </div>`).join('');
+  $$('.item-fila', lista).forEach((el) => {
+    const r = E.rascunhos.find((x) => x.id === el.dataset.id);
+    $$('[data-a]', el).forEach((b) => (b.onclick = async () => {
+      if (b.dataset.a === 'abrir') return copiarEAbrirIg(r.usuario, $('textarea', el).value, r.id);
+      if (await tentar(() => post(`/instagram/rascunho/${r.id}/feito`), 'Marcada como enviada')) carregarIg();
+    }));
+  });
+  icones();
+}
+
+// ---------- ESTÚDIO ----------
+function renderEstudio() {
+  const f = $('#form-estudio');
+  if (E.previaDados) { Object.entries(E.previaDados).forEach(([k, v]) => { if (f.elements[k] && v) f.elements[k].value = v; }); E.previaDados = null; gerarPrevia(); }
+  $('#lista-prompts').innerHTML = PROMPT_TEMPLATES.map((p, i) => `<div class="prompt"><span class="selo">${esc(p.category)} · ${esc(p.segment)}</span><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><button class="btn btn-vidro btn-pequeno" data-i="${i}"><i data-lucide="copy"></i>Copiar com os dados do formulário</button></div>`).join('');
+  $$('#lista-prompts [data-i]').forEach((b) => (b.onclick = async () => {
+    const d = Object.fromEntries(new FormData(f));
+    const t = PROMPT_TEMPLATES[+b.dataset.i].promptText.replaceAll('{{EMPRESA}}', d.company || 'a empresa').replaceAll('{{CIDADE}}', d.city || 'sua cidade').replaceAll('{{DIFERENCIAL}}', d.diferencial || 'diferenciais do negócio').replaceAll('{{OFERTA}}', d.oferta || 'oferta da semana');
+    try { await navigator.clipboard.writeText(t); toast('Prompt copiado', 'ok'); } catch { toast('Não consegui copiar', 'erro'); }
+  }));
+  icones();
+}
+function gerarPrevia() {
+  const d = Object.fromEntries(new FormData($('#form-estudio')));
+  E.previaHTML = generateLandingPageHTML(d);
+  $('#previa-lp').srcdoc = E.previaHTML;
+}
+function baixar(nome, conteudo, tipo) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
+  a.download = nome; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ---------- AJUSTES ----------
+async function renderAjustes() {
+  E.config = (await tentar(() => get('/config'))) || E.config;
+  const c = E.config;
+  $('#form-config').innerHTML = `
+    <div class="largo cartao-topo" style="margin:0"><h2>Travas do WhatsApp</h2><span class="dica">valem para você e para a IA</span></div>
+    <div class="largo opcao-modo">
+      <label><input type="radio" name="modo" value="aprovacao" ${c.modo !== 'auto' ? 'checked' : ''} /><span>Aprovação (recomendado)<small>A IA prepara e a mensagem espera você na fila.</small></span></label>
+      <label><input type="radio" name="modo" value="auto" ${c.modo === 'auto' ? 'checked' : ''} /><span>Automático<small>A IA envia sozinha, dentro das travas abaixo.</small></span></label>
+    </div>
+    <label>Conversas novas por dia<input name="limiteDia" type="number" min="1" max="200" value="${esc(c.limiteDia ?? 25)}" /></label>
+    <label>Intervalo mínimo entre envios (s)<input name="intervaloSeg" type="number" min="20" max="3600" value="${esc(c.intervaloSeg ?? 90)}" /></label>
+    <label>Envia a partir de (hora)<input name="horarioInicio" type="number" min="0" max="23" value="${esc(c.horarioInicio ?? 8)}" /></label>
+    <label>Até (hora)<input name="horarioFim" type="number" min="1" max="24" value="${esc(c.horarioFim ?? 19)}" /></label>
+    <label>Assinatura nas mensagens<input name="assinatura" value="${esc(c.assinatura ?? 'Jerry')}" /></label>
+    <label>Token do treg (opcional)<input name="tregToken" type="password" placeholder="${c.tregToken ? 'salvo: ' + esc(c.tregToken) : 'usa o login do treg deste PC'}" autocomplete="off" /></label>
+    <div class="largo linha-botoes"><button class="btn btn-ok" type="submit"><i data-lucide="check"></i>Salvar ajustes</button><button class="btn btn-perigo" type="button" id="wa-sair"><i data-lucide="log-out"></i>Desconectar WhatsApp e apagar sessão</button></div>`;
+  $('#form-config').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    ['limiteDia', 'intervaloSeg', 'horarioInicio', 'horarioFim'].forEach((k) => (d[k] = Number(d[k])));
+    if (!d.tregToken) delete d.tregToken;
+    if (await tentar(() => post('/config', d), 'Ajustes salvos')) { renderAjustes(); carregarStatusWa(); }
+  };
+  $('#wa-sair').onclick = async () => {
+    if (!confirm('Desconectar o WhatsApp do Nagi e apagar a sessão salva neste PC?')) return;
+    if (await tentar(() => post('/wa/sair'), 'WhatsApp desconectado')) carregarStatusWa();
+  };
+  const caminho = 'C:\\\\Users\\\\WIN11\\\\OneDrive\\\\Documentos\\\\nagi\\\\mcp\\\\nagi-mcp.mjs';
+  const caminhoTxt = 'C:\\Users\\WIN11\\OneDrive\\Documentos\\nagi\\mcp\\nagi-mcp.mjs';
+  $('#mcp-info').innerHTML = `
+    <div class="cartao-topo"><h2>Ligar na sua IA (MCP)</h2><span class="dica">o Nagi precisa estar aberto</span></div>
+    <p class="sub" style="margin:0 0 8px">Com o MCP, o Antigravity ou o Codex leem suas conversas, cadastram leads, buscam empresas no Maps e preparam mensagens. No modo aprovação, tudo que a IA quiser enviar cai na fila.</p>
+    <p style="margin:12px 0 0;font-weight:700">Antigravity</p>
+    <p class="dica" style="margin:2px 0">arquivo <code>%USERPROFILE%\\.gemini\\antigravity\\mcp_config.json</code></p>
+    <pre class="codigo">{
+  "mcpServers": {
+    "nagi": { "command": "node", "args": ["${caminho}"] }
+  }
+}</pre>
+    <p style="margin:12px 0 0;font-weight:700">Codex</p>
+    <pre class="codigo">codex mcp add nagi -- node "${esc(caminhoTxt)}"</pre>
+    <p class="dica">Depois peça, por exemplo: “use o nagi para buscar 20 barbearias em Cajazeiras PB, adicionar como leads e preparar uma mensagem curta para as que não têm site”.</p>`;
+  icones();
+}
+
+// ---------- início ----------
+function ligar() {
+  $$('#menu button').forEach((b) => (b.onclick = () => irPara(b.dataset.tela)));
+  $$('[data-ir]').forEach((b) => (b.onclick = () => irPara(b.dataset.ir)));
+  $('#busca-leads').oninput = (e) => { E.buscaLeads = e.target.value; renderKanban(); };
+  $('#busca-conversas').oninput = (e) => { E.buscaConversas = e.target.value; renderConversas(); };
+  $('#btn-novo-lead').onclick = novoLead;
+  $('#btn-importar').onclick = importar;
+  $$('#abas-fila button').forEach((b) => (b.onclick = () => { E.filtroFila = b.dataset.st; carregarFila(); }));
+  $('#form-prospectar').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    const b = $('button', e.target); b.disabled = true; b.innerHTML = 'Buscando no Maps…';
+    const r = await tentar(() => post('/prospectar', d));
+    b.disabled = false; b.innerHTML = '<i data-lucide="search"></i>Buscar'; icones();
+    if (r) { E.resultados = r.resultados || []; E.ultimaBusca = { ...d, servidoPor: r.servidoPor }; renderProspeccao(); if (!E.resultados.length) toast('Nenhum resultado. Tente outro termo ou cidade.'); }
+  };
+  $('#form-estudio').onsubmit = (e) => { e.preventDefault(); gerarPrevia(); };
+  $('#baixar-lp').onclick = () => { if (!E.previaHTML) gerarPrevia(); baixar('pagina-nagi.html', E.previaHTML, 'text/html'); };
+  $('#baixar-n8n').onclick = () => baixar('fluxo-nagi-n8n.json', generateN8nWorkflowJSON(Object.fromEntries(new FormData($('#form-estudio')))), 'application/json');
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') { fecharModal(); $('#gaveta').hidden = true; } });
+  // parallax suave da onda
+  const onda = $('.hero-onda');
+  addEventListener('pointermove', (e) => {
+    onda.style.setProperty('--px', `${(e.clientX / innerWidth - 0.5) * -18}px`);
+    onda.style.setProperty('--py', `${(e.clientY / innerHeight - 0.5) * -10}px`);
+  });
+}
+
+async function iniciar() {
+  window.oceano = new Oceano($('#mar'), { escala: 0.55 });
+  ligar();
+  icones();
+  E.config = (await tentar(() => get('/config'))) || {};
+  await carregarStatusWa();
+  irPara('painel');
+  // atualizações periódicas
+  setInterval(carregarStatusWa, 5000);
+  setInterval(() => { contarFila(); if (E.tela === 'painel') renderPainel(); }, 30000);
+  setInterval(() => { if (E.tela === 'whatsapp' && E.wa.estado !== 'conectado') renderConexao(); }, 5000);
+  setInterval(() => { if (E.tela === 'whatsapp' && E.wa.estado === 'conectado') carregarConversas(); }, 9000);
+  setInterval(() => { if (E.tela === 'whatsapp' && E.chatJid) carregarMensagens(); }, 4000);
+}
+
+iniciar();
