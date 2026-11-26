@@ -1,11 +1,30 @@
 {
   "name": "nagi-saas",
   "version": "1.0.0",
-  "description": "Nagi — SaaS de Prospecção Treg, Robô de Abordagem e Estúdio de Landing Pages & n8n",
+  "description": "Nagi 凪 — painel pessoal de prospecção: leads, WhatsApp (Baileys) com fila de aprovação, rascunhos de Instagram e servidor MCP para Antigravity/Codex",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "mcp": "node mcp/nagi-mcp.mjs"
   },
-  "keywords": ["saas", "treg", "n8n", "landing-page", "threejs", "tailwind"],
-  "license": "MIT"
+  "keywords": [
+    "saas",
+    "treg",
+    "n8n",
+    "landing-page",
+    "threejs",
+    "tailwind"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
+    "zod": "^4.6.7"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
 }
