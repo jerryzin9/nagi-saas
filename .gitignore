@@ -1,5 +1,7 @@
 # Dependências
 node_modules/
+.wwebjs_cache/
+.wwebjs_auth/
 
 # Dados locais do Jerry: sessão do WhatsApp, leads, fila, config com token do treg, logs de envio.
 # O repositório no GitHub é PÚBLICO: nada disso pode subir.

@@ -21,6 +21,7 @@
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "pino": "^10.4.0",
     "qrcode": "^1.5.4",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#38eb45b275",
     "zod": "^4.6.7"
   },
   "type": "module",

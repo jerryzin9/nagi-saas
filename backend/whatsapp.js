@@ -1,316 +1,365 @@
-// Ponte com o WhatsApp pessoal do Jerry via Baileys (WhatsApp Web, conexão por QR).
-// Sessão em data/wa-auth (fora do Git). Conversas recentes guardadas em data/wa-store.json.
+// Ponte com o WhatsApp pessoal do Jerry pelo WhatsApp Web DE VERDADE (whatsapp-web.js + Chrome sem janela).
+// Em 26/11 o celular recusou o pareamento da Baileys ("não é possível conectar" e 401 Connection Failure); a
+// versão Baileys ficou em backend/whatsapp-baileys.js só como referência. As funções exportadas são as mesmas.
+// Sessão em data/wa-wwebjs (fora do Git). Conversas recentes guardadas em data/wa-store.json.
+// IDs são expostos no formato numero@s.whatsapp.net (o resto do Nagi usa esse formato); por dentro, @c.us.
 import fs from 'node:fs';
-import pino from 'pino';
 import QRCode from 'qrcode';
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  Browsers,
-  makeCacheableSignalKeyStore,
-  jidNormalizedUser,
-  extractMessageContent,
-  isJidGroup,
-  isLidUser,
-  isPnUser,
-  isJidBroadcast,
-  isJidNewsletter,
-} from '@whiskeysockets/baileys';
+import wweb from 'whatsapp-web.js';
 import { caminho, lerJSON, gravarJSON } from './store.js';
 import { numeroDoJid, variantesWhatsApp } from './telefone.js';
 
-const AUTH_DIR = caminho('wa-auth');
-const logger = pino({ level: 'silent' });
+const { Client, LocalAuth } = wweb;
+const DADOS_DIR = caminho('wa-wwebjs');
+const CHROME = [
+  process.env.NAGI_CHROME,
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+].find((p) => p && fs.existsSync(p));
 
+// 'atual' = a versão do dia. A whatsapp-web.js vem do GitHub (commit 38eb45b de 24/11, "fix: Socket"), que já entende a
+// versão 2.3000.1056…; a 1.34.8 do npm não entendia e o WhatsApp Web se atualiza sozinho depois do login.
+const VERSAO_WA_PADRAO = 'atual';
 const MAX_CONVERSAS = 400;
 const MAX_MSGS = 60;
+
+fs.mkdirSync(caminho(''), { recursive: true });
+function logWa(msg) {
+  try { fs.appendFileSync(caminho('wa.log'), `${new Date().toISOString()} ${msg}\n`); } catch {}
+}
 
 const estado = {
   estado: 'desconectado', // desconectado | qr | conectando | conectado
   qr: null,
   eu: null,
-  cap: null,              // limite de novas conversas informado pelo próprio WhatsApp (message-capping)
+  cap: null,
   erro: null,
 };
 
-let sock = null;
-let parado = true;        // true = o Jerry mandou sair / nunca conectou; não reconecta sozinho
+let cliente = null;
+let parado = true;
 let tentativas = 0;
 let timerReconexao = null;
-const ouvintes = new Set(); // callbacks de mensagem recebida
+const ouvintes = new Set();
 
-// ---------------- armazenamento local das conversas ----------------
+// ---------------- formatos de id ----------------
+const paraLoja = (id) => String(id || '').replace(/@c\.us$/, '@s.whatsapp.net');
+const paraWweb = (jid) => String(jid || '').replace(/@s\.whatsapp\.net$/, '@c.us');
+const ehGrupo = (id) => /@g\.us$/.test(String(id || ''));
+const ignorar = (id) => !id || /@broadcast$|@newsletter$/.test(String(id)) || id === 'status@broadcast';
+
+// ---------------- armazenamento local ----------------
 const loja = lerJSON('wa-store.json', { conversas: {}, mensagens: {}, nomes: {}, lidPn: {} });
 let sujo = false;
 setInterval(() => {
   if (!sujo) return;
   sujo = false;
   try {
-    // corta o excesso antes de gravar
     const chaves = Object.values(loja.conversas).sort((a, b) => (b.quando || 0) - (a.quando || 0));
-    if (chaves.length > MAX_CONVERSAS) {
-      for (const c of chaves.slice(MAX_CONVERSAS)) {
-        delete loja.conversas[c.jid];
-        delete loja.mensagens[c.jid];
-      }
+    for (const c of chaves.slice(MAX_CONVERSAS)) {
+      delete loja.conversas[c.jid];
+      delete loja.mensagens[c.jid];
     }
     gravarJSON('wa-store.json', loja);
   } catch (e) {
     console.error('[wa] erro ao gravar wa-store:', e.message);
   }
 }, 4000).unref();
+const marcar = () => (sujo = true);
 
-function marcar() {
-  sujo = true;
-}
-
-/** Converte qualquer JID de pessoa (LID ou PN) para o JID de telefone, quando souber. */
-async function paraPn(jid, alt) {
-  if (!jid) return jid;
-  const j = jidNormalizedUser(jid);
-  if (isPnUser(j)) return j;
-  if (alt && isPnUser(jidNormalizedUser(alt))) {
-    loja.lidPn[j] = jidNormalizedUser(alt);
-    return loja.lidPn[j];
-  }
-  if (isLidUser(j)) {
-    if (loja.lidPn[j]) return loja.lidPn[j];
-    try {
-      const pn = await sock?.signalRepository?.lidMapping?.getPNForLID(j);
-      if (pn) {
-        loja.lidPn[j] = jidNormalizedUser(pn);
-        marcar();
-        return loja.lidPn[j];
-      }
-    } catch {}
-  }
-  return j;
-}
-
-function ignorar(jid) {
-  return !jid || isJidBroadcast(jid) || isJidNewsletter(jid) || jid === 'status@broadcast';
+/** Contato com @lid (identificador oculto do WhatsApp): troca pelo número de telefone quando der. */
+async function jidDaConversa(idWweb, chat) {
+  if (!/@lid$/.test(idWweb)) return paraLoja(idWweb);
+  if (loja.lidPn[idWweb]) return loja.lidPn[idWweb];
+  try {
+    const ct = await (chat?.getContact ? chat.getContact() : cliente.getContactById(idWweb));
+    const num = ct?.number || ct?.id?.user;
+    if (num && /^\d{10,15}$/.test(num)) {
+      loja.lidPn[idWweb] = `${num}@s.whatsapp.net`;
+      marcar();
+      return loja.lidPn[idWweb];
+    }
+  } catch {}
+  return idWweb;
 }
 
 export function textoDaMensagem(m) {
-  const c = extractMessageContent(m?.message);
-  if (!c) return '';
-  if (c.conversation) return c.conversation;
-  if (c.extendedTextMessage?.text) return c.extendedTextMessage.text;
-  if (c.imageMessage) return `[imagem]${c.imageMessage.caption ? ' ' + c.imageMessage.caption : ''}`;
-  if (c.videoMessage) return `[vídeo]${c.videoMessage.caption ? ' ' + c.videoMessage.caption : ''}`;
-  if (c.audioMessage) return '[áudio]';
-  if (c.documentMessage) return `[documento] ${c.documentMessage.fileName || ''}`.trim();
-  if (c.stickerMessage) return '[figurinha]';
-  if (c.contactMessage) return `[contato] ${c.contactMessage.displayName || ''}`.trim();
-  if (c.locationMessage) return '[localização]';
-  if (c.buttonsResponseMessage) return c.buttonsResponseMessage.selectedDisplayText || '';
-  if (c.listResponseMessage) return c.listResponseMessage.title || '';
-  if (c.reactionMessage) return '';
-  if (c.protocolMessage) return '';
-  return '';
+  if (!m) return '';
+  const t = m.type;
+  if (t === 'chat') return m.body || '';
+  if (t === 'image') return `[imagem]${m.body ? ' ' + m.body : ''}`;
+  if (t === 'video') return `[vídeo]${m.body ? ' ' + m.body : ''}`;
+  if (t === 'ptt' || t === 'audio') return '[áudio]';
+  if (t === 'document') return `[documento] ${m.body || ''}`.trim();
+  if (t === 'sticker') return '[figurinha]';
+  if (t === 'vcard' || t === 'multi_vcard') return '[contato]';
+  if (t === 'location') return '[localização]';
+  if (t === 'buttons_response' || t === 'list_response') return m.body || '';
+  if (t === 'revoked' || t === 'e2e_notification' || t === 'notification_template' || t === 'call_log') return '';
+  return m.body || '';
 }
 
-function quandoMs(ts) {
-  if (!ts) return Date.now();
-  const n = typeof ts === 'object' && ts.toNumber ? ts.toNumber() : Number(ts);
-  return n < 1e12 ? n * 1000 : n;
-}
-
-async function guardarMensagem(m, { contarNaoLida = false } = {}) {
-  const key = m.key || {};
-  if (ignorar(key.remoteJid)) return null;
-  const grupo = isJidGroup(key.remoteJid);
-  const jid = grupo ? key.remoteJid : await paraPn(key.remoteJid, key.remoteJidAlt);
+async function guardarMensagem(m, { contarNaoLida = false, jidPronto } = {}) {
+  const idConversa = m.fromMe ? m.to : m.from;
+  if (ignorar(idConversa)) return null;
+  const grupo = ehGrupo(idConversa);
+  const jid = jidPronto || (grupo ? idConversa : await jidDaConversa(idConversa));
   const texto = textoDaMensagem(m);
   if (!texto) return null;
-  const quando = quandoMs(m.messageTimestamp);
+  const quando = (m.timestamp || Date.now() / 1000) * 1000;
+  const id = m.id?._serialized || m.id?.id || String(quando);
   const lista = (loja.mensagens[jid] ||= []);
-  if (lista.some((x) => x.id === key.id)) return null;
-  const msg = { id: key.id, deMim: !!key.fromMe, texto, quando };
+  if (lista.some((x) => x.id === id)) return null;
+  const msg = { id, deMim: !!m.fromMe, texto, quando };
   lista.push(msg);
   lista.sort((a, b) => a.quando - b.quando);
   if (lista.length > MAX_MSGS) lista.splice(0, lista.length - MAX_MSGS);
-  if (!key.fromMe && m.pushName && !grupo) loja.nomes[jid] = loja.nomes[jid] || m.pushName;
+  if (!m.fromMe && !grupo && m._data?.notifyName) loja.nomes[jid] = loja.nomes[jid] || m._data.notifyName;
   const c = (loja.conversas[jid] ||= { jid, nome: '', numero: numeroDoJid(jid), ultimaMensagem: '', naoLidas: 0, quando: 0, grupo });
   if (quando >= (c.quando || 0)) {
-    c.ultimaMensagem = (key.fromMe ? 'Você: ' : '') + texto.slice(0, 160);
+    c.ultimaMensagem = (m.fromMe ? 'Você: ' : '') + texto.slice(0, 160);
     c.quando = quando;
   }
-  if (contarNaoLida && !key.fromMe) c.naoLidas = (c.naoLidas || 0) + 1;
+  if (contarNaoLida && !m.fromMe) c.naoLidas = (c.naoLidas || 0) + 1;
   marcar();
   return { jid, msg, grupo };
 }
 
-function nomeDe(jid) {
-  return loja.nomes[jid] || loja.conversas[jid]?.nome || '';
+const nomeDe = (jid) => loja.nomes[jid] || loja.conversas[jid]?.nome || '';
+
+/** Depois de conectar: lista de conversas + últimas mensagens das mais recentes (para saber quem já é conversa antiga).
+ *  Lê direto do WhatsApp Web só os campos que o Nagi usa (o getChats() completo estoura o tempo com muitas conversas). */
+const LER_CONVERSAS = `() => {
+  const S = window.Store;
+  const lista = (S && S.Chat && S.Chat.getModelsArray) ? S.Chat.getModelsArray() : [];
+  return lista.map((c) => {
+    let ult = null;
+    try {
+      const ms = c.msgs && c.msgs.getModelsArray ? c.msgs.getModelsArray() : [];
+      const m = ms[ms.length - 1];
+      if (m) ult = { id: m.id && m.id._serialized, fromMe: !!(m.id && m.id.fromMe), body: m.body || m.caption || '', type: m.type, t: m.t };
+    } catch (e) {}
+    return { id: c.id && c.id._serialized, nome: c.name || c.formattedTitle || '', t: c.t || 0, naoLidas: c.unreadCount || 0, grupo: !!c.isGroup, ult };
+  }).filter((x) => x.id);
+}`;
+const LER_MENSAGENS = `(id, n) => {
+  const c = window.Store && window.Store.Chat && window.Store.Chat.get(id);
+  if (!c || !c.msgs) return [];
+  return c.msgs.getModelsArray().slice(-n).map((m) => ({ id: m.id && m.id._serialized, fromMe: !!(m.id && m.id.fromMe), body: m.body || m.caption || '', type: m.type, t: m.t }));
+}`;
+const comoMsg = (x, idConversa) => ({ id: { _serialized: x.id }, fromMe: x.fromMe, from: x.fromMe ? '' : idConversa, to: x.fromMe ? idConversa : '', body: x.body, type: x.type, timestamp: x.t });
+
+async function sincronizar(tentativa = 1) {
+  if (!cliente || estado.estado !== 'conectado') return;
+  try {
+    const pagina = cliente.pupPage;
+    let chats = await pagina.evaluate(new Function(`return (${LER_CONVERSAS})()`));
+    if (!chats.length) {
+      const diag = await pagina.evaluate(() => ({ store: Object.keys(window.Store || {}).length, chat: !!(window.Store && window.Store.Chat), wwebjs: typeof window.WWebJS }));
+      logWa(`leitura rápida vazia (Store: ${diag.store} chaves, Chat: ${diag.chat}, WWebJS: ${diag.wwebjs}); usando getChats()`);
+      const completos = await cliente.getChats();
+      chats = completos.map((c) => ({
+        id: c.id._serialized, nome: c.name || '', t: c.timestamp || 0, naoLidas: c.unreadCount || 0, grupo: !!c.isGroup,
+        ult: c.lastMessage ? { id: c.lastMessage.id?._serialized, fromMe: !!c.lastMessage.fromMe, body: c.lastMessage.body || '', type: c.lastMessage.type, t: c.lastMessage.timestamp } : null,
+      }));
+    }
+    logWa(`sincronizando ${chats.length} conversas`);
+    if (!chats.length && tentativa < 8) {
+      // logo depois de conectar o WhatsApp Web ainda está puxando as conversas do celular
+      setTimeout(() => sincronizar(tentativa + 1), 20000);
+      return;
+    }
+    const recentes = chats.filter((ch) => !ignorar(ch.id)).sort((a, b) => (b.t || 0) - (a.t || 0)).slice(0, 200);
+    for (const ch of recentes) {
+      const jid = ch.grupo ? ch.id : await jidDaConversa(ch.id);
+      const c = (loja.conversas[jid] ||= { jid, nome: '', numero: numeroDoJid(jid), ultimaMensagem: '', naoLidas: 0, quando: 0, grupo: ch.grupo });
+      if (ch.nome) c.nome = ch.nome;
+      c.naoLidas = Math.max(0, ch.naoLidas || 0);
+      const ts = (ch.t || 0) * 1000;
+      if (ts > (c.quando || 0)) c.quando = ts;
+      if (ch.ult) await guardarMensagem(comoMsg(ch.ult, ch.id), { jidPronto: jid });
+    }
+    marcar();
+    logWa(`conversas carregadas: ${recentes.length}`);
+    // histórico curto das 40 conversas individuais mais recentes
+    for (const ch of recentes.filter((x) => !x.grupo).slice(0, 40)) {
+      if (!cliente || estado.estado !== 'conectado') break;
+      try {
+        const jid = await jidDaConversa(ch.id);
+        let msgs = await pagina.evaluate(new Function('id', 'n', `return (${LER_MENSAGENS})(id, n)`), ch.id, 30);
+        if (msgs.length) {
+          for (const m of msgs) await guardarMensagem(comoMsg(m, ch.id), { jidPronto: jid });
+        } else {
+          const chat = await cliente.getChatById(ch.id);
+          for (const m of await chat.fetchMessages({ limit: 30 })) await guardarMensagem(m, { jidPronto: jid });
+        }
+      } catch {}
+    }
+    marcar();
+    logWa('sincronização concluída');
+  } catch (e) {
+    logWa(`erro na sincronização (tentativa ${tentativa}): ${e.message}`);
+    if (tentativa < 4) setTimeout(() => sincronizar(tentativa + 1), 45000 * tentativa);
+  }
 }
 
 // ---------------- conexão ----------------
-async function iniciarSocket() {
+async function iniciarCliente({ telefonePareamento } = {}) {
   clearTimeout(timerReconexao);
+  if (!CHROME) {
+    estado.estado = 'desconectado';
+    estado.erro = 'Chrome não encontrado neste PC (o WhatsApp Web roda num Chrome escondido)';
+    return;
+  }
   estado.estado = 'conectando';
   estado.erro = null;
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-
-  let version;
-  try {
-    ({ version } = await fetchLatestBaileysVersion());
-  } catch {}
-
-  sock = makeWASocket({
-    ...(version ? { version } : {}),
-    auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
-    logger,
-    browser: Browsers.windows('Desktop'),
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
-    generateHighQualityLinkPreview: false,
+  estado.qr = null;
+  fs.mkdirSync(DADOS_DIR, { recursive: true });
+  // Versão do WhatsApp Web: a do dia, salvo se config.json tiver "waWebVersao" (lista em github.com/wppconnect-team/wa-version).
+  const versaoCfg = process.env.NAGI_WA_VERSAO || lerJSON('config.json', {}).waWebVersao || VERSAO_WA_PADRAO;
+  const c = new Client({
+    authStrategy: new LocalAuth({ clientId: 'nagi', dataPath: DADOS_DIR }),
+    authTimeoutMs: 90000,
+    ...(versaoCfg !== 'atual' ? {
+      webVersion: versaoCfg,
+      webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html' },
+    } : {}),
+    puppeteer: {
+      headless: true,
+      executablePath: CHROME,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check'],
+      protocolTimeout: 600000,
+    },
+    ...(telefonePareamento ? { pairWithPhoneNumber: { phoneNumber: telefonePareamento, showNotification: true, intervalMs: 180000 } } : {}),
   });
-  const atual = sock;
+  cliente = c;
+  logWa(`iniciando WhatsApp Web (Chrome: ${CHROME})${telefonePareamento ? ' com código de pareamento' : ''}`);
 
-  atual.ev.on('creds.update', saveCreds);
-
-  atual.ev.on('connection.update', async (u) => {
-    if (atual !== sock) return; // socket antigo
-    const { connection, lastDisconnect, qr } = u;
-    if (qr) {
-      try {
-        estado.qr = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
-        estado.estado = 'qr'; // só depois que a imagem existe (a UI nunca vê 'qr' com qr null)
-        const terminal = await QRCode.toString(qr, { type: 'terminal', small: true });
-        console.log('\n[wa] Escaneie o QR no WhatsApp > Aparelhos conectados:\n' + terminal);
-      } catch (e) {
-        estado.erro = 'falha ao gerar QR: ' + e.message;
-      }
-    }
-    if (connection === 'open') {
-      tentativas = 0;
-      estado.estado = 'conectado';
-      estado.qr = null;
-      const id = jidNormalizedUser(atual.user?.id || '');
-      estado.eu = { numero: numeroDoJid(id), nome: atual.user?.name || atual.user?.verifiedName || '' };
-      console.log(`[wa] conectado como ${estado.eu.nome} (${estado.eu.numero})`);
-      try {
-        const cap = await atual.fetchNewChatMessageCap?.();
-        if (cap) estado.cap = cap;
-      } catch {}
-    }
-    if (connection === 'close') {
-      const codigo = lastDisconnect?.error?.output?.statusCode;
-      estado.qr = null;
-      if (codigo === DisconnectReason.loggedOut) {
-        console.log('[wa] sessão encerrada no celular: apagando credenciais');
-        apagarSessao();
-        estado.estado = 'desconectado';
-        estado.eu = null;
-        parado = true;
-        return;
-      }
-      if (parado) {
-        estado.estado = 'desconectado';
-        return;
-      }
-      // 515 (restartRequired) logo após escanear o QR é normal: reconecta na hora
-      tentativas += 1;
-      const espera = codigo === DisconnectReason.restartRequired ? 500 : Math.min(60000, 2000 * 2 ** Math.min(tentativas, 5));
-      estado.estado = 'conectando';
-      estado.erro = lastDisconnect?.error?.message || null;
-      timerReconexao = setTimeout(() => iniciarSocket().catch((e) => (estado.erro = e.message)), espera);
+  c.on('qr', async (qr) => {
+    if (cliente !== c) return;
+    try {
+      estado.qr = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+      estado.estado = 'qr';
+      logWa('QR novo');
+    } catch (e) {
+      estado.erro = 'falha ao gerar QR: ' + e.message;
     }
   });
-
-  atual.ev.on('message-capping.update', (cap) => {
-    estado.cap = { ...(estado.cap || {}), ...cap };
+  c.on('code', (codigo) => {
+    estado.codigo = codigo;
+    logWa('código de pareamento emitido');
   });
-
-  atual.ev.on('messaging-history.set', async ({ chats = [], contacts = [], messages = [], lidPnMappings = [] }) => {
-    for (const mp of lidPnMappings || []) {
-      if (mp?.lid && mp?.pn) loja.lidPn[jidNormalizedUser(mp.lid)] = jidNormalizedUser(mp.pn);
-    }
-    for (const ct of contacts) {
-      const jid = await paraPn(ct.id, ct.phoneNumber);
-      const nome = ct.name || ct.notify || ct.verifiedName;
-      if (jid && nome) loja.nomes[jid] = nome;
-    }
-    for (const ch of chats) {
-      if (ignorar(ch.id)) continue;
-      const grupo = isJidGroup(ch.id);
-      const jid = grupo ? ch.id : await paraPn(ch.id, ch.pnJid);
-      const c = (loja.conversas[jid] ||= { jid, nome: '', numero: numeroDoJid(jid), ultimaMensagem: '', naoLidas: 0, quando: 0, grupo });
-      if (ch.name) c.nome = ch.name;
-      if (typeof ch.unreadCount === 'number') c.naoLidas = Math.max(0, ch.unreadCount);
-      const ts = quandoMs(ch.conversationTimestamp || ch.lastMessageRecvTimestamp);
-      if (ts > (c.quando || 0)) c.quando = ts;
-    }
-    for (const m of messages) await guardarMensagem(m);
-    marcar();
+  c.on('authenticated', () => {
+    logWa('autenticado pelo celular');
+    estado.estado = 'conectando';
+    estado.qr = null;
   });
-
-  atual.ev.on('contacts.upsert', async (lista) => {
-    for (const ct of lista) {
-      const jid = await paraPn(ct.id, ct.phoneNumber);
-      const nome = ct.name || ct.notify || ct.verifiedName;
-      if (jid && nome) loja.nomes[jid] = nome;
-    }
-    marcar();
+  c.on('auth_failure', (msg) => {
+    logWa('falha de autenticação: ' + msg);
+    estado.erro = 'o WhatsApp recusou a sessão: ' + msg;
   });
-
-  atual.ev.on('chats.update', async (lista) => {
-    for (const ch of lista) {
-      if (ignorar(ch.id)) continue;
-      const jid = isJidGroup(ch.id) ? ch.id : await paraPn(ch.id);
-      const c = loja.conversas[jid];
-      if (!c) continue;
-      if (typeof ch.unreadCount === 'number') c.naoLidas = Math.max(0, ch.unreadCount);
-      if (ch.name) c.nome = ch.name;
-    }
-    marcar();
+  c.on('ready', async () => {
+    if (cliente !== c) return;
+    tentativas = 0;
+    estado.estado = 'conectado';
+    estado.qr = null;
+    estado.codigo = null;
+    const wid = c.info?.wid?._serialized || '';
+    estado.eu = { numero: numeroDoJid(paraLoja(wid)), nome: c.info?.pushname || '' };
+    logWa(`conectado como ${estado.eu.nome} (${estado.eu.numero})`);
+    console.log(`[wa] conectado como ${estado.eu.nome} (${estado.eu.numero})`);
+    sincronizar();
   });
-
-  atual.ev.on('messages.upsert', async ({ messages, type }) => {
-    for (const m of messages) {
-      const r = await guardarMensagem(m, { contarNaoLida: type === 'notify' });
-      if (r && type === 'notify' && !m.key.fromMe && !r.grupo) {
-        for (const f of ouvintes) {
-          try {
-            await f({ jid: r.jid, numero: numeroDoJid(r.jid), texto: r.msg.texto, nome: m.pushName || nomeDe(r.jid), quando: r.msg.quando });
-          } catch (e) {
-            console.error('[wa] erro no ouvinte de mensagem:', e.message);
-          }
+  c.on('disconnected', (motivo) => {
+    if (cliente !== c) return;
+    logWa('desconectado: ' + motivo);
+    cliente = null;
+    estado.qr = null;
+    estado.eu = null;
+    if (motivo === 'LOGOUT' || parado) {
+      estado.estado = 'desconectado';
+      if (motivo === 'LOGOUT') apagarSessao();
+      try { c.destroy(); } catch {}
+      return;
+    }
+    tentativas += 1;
+    estado.estado = 'conectando';
+    estado.erro = 'conexão caiu: ' + motivo;
+    const espera = Math.min(60000, 3000 * 2 ** Math.min(tentativas, 4));
+    try { c.destroy(); } catch {}
+    timerReconexao = setTimeout(() => iniciarCliente().catch((e) => (estado.erro = e.message)), espera);
+  });
+  c.on('message_create', async (m) => {
+    try { await guardarMensagem(m); } catch {}
+  });
+  c.on('message', async (m) => {
+    // só mensagens recebidas (o message_create já guardou)
+    try {
+      if (m.fromMe || ehGrupo(m.from) || ignorar(m.from)) return;
+      const jid = await jidDaConversa(m.from);
+      const conv = loja.conversas[jid];
+      if (conv) { conv.naoLidas = (conv.naoLidas || 0) + 1; marcar(); }
+      const texto = textoDaMensagem(m);
+      if (!texto) return;
+      for (const f of ouvintes) {
+        try {
+          await f({ jid, numero: numeroDoJid(jid), texto, nome: m._data?.notifyName || nomeDe(jid), quando: (m.timestamp || Date.now() / 1000) * 1000 });
+        } catch (e) {
+          console.error('[wa] erro no ouvinte de mensagem:', e.message);
         }
       }
-    }
+    } catch {}
   });
+
+  try {
+    await c.initialize();
+  } catch (e) {
+    logWa('erro ao iniciar: ' + e.message);
+    if (cliente === c) {
+      cliente = null;
+      estado.estado = 'desconectado';
+      estado.erro = 'não consegui abrir o WhatsApp Web: ' + e.message.split('\n')[0];
+    }
+  }
 }
 
 function apagarSessao() {
-  try {
-    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-  } catch {}
+  try { fs.rmSync(DADOS_DIR, { recursive: true, force: true }); } catch {}
 }
 
 export async function conectar() {
   parado = false;
-  if (sock && (estado.estado === 'conectado' || estado.estado === 'qr' || estado.estado === 'conectando')) return status();
-  await iniciarSocket();
+  if (cliente && ['conectado', 'qr', 'conectando'].includes(estado.estado)) return status();
+  iniciarCliente().catch((e) => (estado.erro = e.message)); // abrir o Chrome demora; a UI acompanha pelo status
+  await new Promise((r) => setTimeout(r, 300));
   return status();
 }
 
-/** Sai de verdade: desconecta o aparelho no WhatsApp e apaga a sessão local. */
+/** Alternativa ao QR: código de 8 caracteres para "Conectar com número de telefone" no celular. */
+export async function codigoPareamento(numero) {
+  const digitos = String(numero || '').replace(/\D/g, '');
+  if (digitos.length < 12) throw new Error('informe o número com DDI e DDD, ex.: 5583999670561');
+  if (estado.estado === 'conectado') throw new Error('o WhatsApp já está conectado');
+  parado = false;
+  if (!cliente) {
+    iniciarCliente().catch((e) => (estado.erro = e.message));
+  }
+  // espera o WhatsApp Web carregar a tela de login (primeiro QR)
+  for (let i = 0; i < 120 && estado.estado !== 'qr'; i++) await new Promise((r) => setTimeout(r, 500));
+  if (estado.estado !== 'qr' || !cliente) throw new Error('o WhatsApp Web ainda não abriu; tente de novo em alguns segundos');
+  const codigo = await cliente.requestPairingCode(digitos, true);
+  logWa(`código de pareamento pedido para ${digitos.slice(0, 4)}…${digitos.slice(-2)}`);
+  return codigo;
+}
+
 export async function sair() {
   parado = true;
   clearTimeout(timerReconexao);
-  const s = sock;
-  sock = null;
-  if (s) {
-    try {
-      if (estado.estado === 'conectado') await s.logout();
-    } catch {}
-    try {
-      s.end(undefined);
-    } catch {}
+  const c = cliente;
+  cliente = null;
+  if (c) {
+    try { if (estado.estado === 'conectado') await c.logout(); } catch {}
+    try { await c.destroy(); } catch {}
   }
   apagarSessao();
   estado.estado = 'desconectado';
@@ -320,16 +369,27 @@ export async function sair() {
   return status();
 }
 
-/** Ao subir o servidor: se já existe sessão salva, reconecta sozinho (sem pedir QR de novo). */
 export async function retomarSeHouverSessao() {
-  if (fs.existsSync(caminho('wa-auth/creds.json'))) {
+  if (fs.existsSync(DADOS_DIR) && fs.readdirSync(DADOS_DIR).length) {
     parado = false;
-    try {
-      await iniciarSocket();
-    } catch (e) {
-      estado.erro = e.message;
-    }
+    iniciarCliente().catch((e) => (estado.erro = e.message));
   }
+}
+
+/** Diagnóstico: print da tela escondida do WhatsApp Web + o que a página tem carregado. */
+export async function diagnostico() {
+  if (!cliente?.pupPage) return { erro: 'o WhatsApp Web não está aberto' };
+  const p = cliente.pupPage;
+  await p.screenshot({ path: caminho('wa-debug.png') });
+  const info = await p.evaluate(() => ({
+    titulo: document.title,
+    texto: (document.body.innerText || '').slice(0, 400),
+    store: Object.keys(window.Store || {}).length,
+    chats: window.Store && window.Store.Chat && window.Store.Chat.getModelsArray ? window.Store.Chat.getModelsArray().length : null,
+    wwebjs: typeof window.WWebJS,
+    versao: window.Debug && window.Debug.VERSION,
+  }));
+  return { ...info, print: caminho('wa-debug.png') };
 }
 
 export function status() {
@@ -337,7 +397,7 @@ export function status() {
 }
 
 export function conectado() {
-  return estado.estado === 'conectado' && !!sock;
+  return estado.estado === 'conectado' && !!cliente;
 }
 
 export function aoReceber(f) {
@@ -365,20 +425,23 @@ export function conversas({ limite = 40, grupos = false } = {}) {
 export async function mensagens(jid, limite = 50) {
   let j = String(jid || '');
   if (/^\d+$/.test(j)) j = `${j}@s.whatsapp.net`;
-  if (isLidUser(j)) j = await paraPn(j);
-  const lista = loja.mensagens[j] || [];
-  // abrir a conversa zera o contador local de não lidas
+  // conversa aberta: busca as mais recentes direto no WhatsApp Web (pega o que chegou por outros aparelhos)
+  if (conectado() && !ehGrupo(j)) {
+    try {
+      const chat = await cliente.getChatById(paraWweb(j));
+      const msgs = await chat.fetchMessages({ limit: Math.min(60, Number(limite) || 50) });
+      for (const m of msgs) await guardarMensagem(m, { jidPronto: j });
+    } catch {}
+  }
   if (loja.conversas[j]) {
     loja.conversas[j].naoLidas = 0;
     marcar();
   }
-  return lista.slice(-Math.max(1, Math.min(200, Number(limite) || 50)));
+  return (loja.mensagens[j] || []).slice(-Math.max(1, Math.min(200, Number(limite) || 50)));
 }
 
-/** Já existe conversa com esse número (mensagem trocada)? Usado para saber se é conversa NOVA. */
 export function temHistoricoCom(numero) {
-  const vs = variantesWhatsApp(numero);
-  return vs.some((v) => (loja.mensagens[`${v}@s.whatsapp.net`] || []).length > 0);
+  return variantesWhatsApp(numero).some((v) => (loja.mensagens[`${v}@s.whatsapp.net`] || []).length > 0);
 }
 
 export function nomeDoNumero(numero) {
@@ -389,39 +452,38 @@ export function nomeDoNumero(numero) {
   return '';
 }
 
-// ---------------- envio (sem travas: quem chama é o módulo envio.js) ----------------
-/** Descobre o JID real no WhatsApp (testa com e sem o 9º dígito). */
+// ---------------- envio (sem travas: quem chama é o envio.js) ----------------
 export async function resolverJid(para) {
   if (!conectado()) throw new Error('WhatsApp não está conectado');
   const s = String(para || '');
-  if (s.includes('@')) return jidNormalizedUser(s);
+  if (s.includes('@')) return paraLoja(s);
   const vs = variantesWhatsApp(s);
   if (!vs.length) throw new Error('número inválido');
-  const r = (await sock.onWhatsApp(...vs)) || [];
-  const achado = r.find((x) => x.exists);
-  if (!achado) return null;
-  return jidNormalizedUser(achado.jid);
+  for (const v of vs) {
+    try {
+      const r = await cliente.getNumberId(v);
+      if (r?._serialized) return paraLoja(r._serialized);
+    } catch {}
+  }
+  return null;
 }
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function enviarTexto(jid, texto) {
   if (!conectado()) throw new Error('WhatsApp não está conectado');
-  const s = sock;
+  const idW = paraWweb(jid);
   try {
-    await s.presenceSubscribe(jid);
-  } catch {}
-  try {
-    await s.sendPresenceUpdate('composing', jid);
-    // "digitando" proporcional ao tamanho do texto: 2 a 6 s
+    const chat = await cliente.getChatById(idW);
+    await chat.sendStateTyping();
     await esperar(Math.min(6000, 2000 + texto.length * 25) + Math.random() * 800);
-    await s.sendPresenceUpdate('paused', jid);
+    await chat.clearState();
   } catch {}
-  const r = await s.sendMessage(jid, { text: texto });
-  if (r) await guardarMensagem(r);
-  return r?.key?.id || null;
+  const m = await cliente.sendMessage(idW, texto);
+  if (m) await guardarMensagem(m, { jidPronto: paraLoja(jid) });
+  return m?.id?._serialized || null;
 }
 
 export function capWhatsAppEsgotado() {
-  return estado.cap?.capping_status === 'EXHAUSTED';
+  return false; // o WhatsApp Web não informa o limite de novas conversas
 }

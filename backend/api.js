@@ -84,6 +84,15 @@ rota('POST', '/api/wa/conectar', async () => {
   const s = wa.status();
   return { estado: s.estado, qr: s.qr, eu: s.eu, erro: s.erro };
 });
+rota('POST', '/api/wa/codigo', async (req, corpo) => {
+  try {
+    const codigo = await wa.codigoPareamento(corpo?.numero);
+    return { codigo };
+  } catch (e) {
+    return { erro: e.message };
+  }
+});
+rota('GET', '/api/wa/diagnostico', async () => wa.diagnostico());
 rota('POST', '/api/wa/sair', async () => {
   const s = await wa.sair();
   return { estado: s.estado };

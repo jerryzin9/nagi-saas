@@ -415,9 +415,26 @@ async function abrirWhatsApp() {
 function renderConexao() {
   const w = E.wa, box = $('#wa-conexao');
   if (w.estado === 'conectado') {
+    E.codigoPar = null;
     box.innerHTML = `<div class="wa-eu"><div style="display:flex;gap:10px;align-items:center"><div class="avatar">${iniciais(w.eu?.nome || 'J')}</div><div><p style="margin:0;font-weight:700">${esc(w.eu?.nome || 'Conectado')}</p><p class="dica" style="margin:0">${esc(fone(w.eu?.numero))}</p></div></div><span class="selo ok">conectado</span></div>`;
+  } else if (E.codigoPar) {
+    box.innerHTML = `<div class="wa-qr"><p class="dica" style="margin:0">Digite este código no celular</p>
+      <p style="font-family:var(--mono);font-size:30px;font-weight:600;letter-spacing:.12em;margin:8px 0">${esc(E.codigoPar.slice(0, 4))}-${esc(E.codigoPar.slice(4))}</p>
+      <ol><li>WhatsApp → <b>⋮ → Aparelhos conectados → Conectar aparelho</b></li><li>Toque em <b>Conectar com número de telefone</b> (embaixo do leitor)</li><li>Digite o código acima</li></ol>
+      <button class="btn btn-vidro btn-pequeno" id="wa-voltar-qr">Voltar para o QR</button></div>`;
+    $('#wa-voltar-qr').onclick = () => { E.codigoPar = null; renderConexao(); };
   } else if (w.estado === 'qr' && w.qr) {
-    box.innerHTML = `<div class="wa-qr"><img src="${esc(w.qr)}" alt="QR do WhatsApp" /><ol><li>No celular, abra o WhatsApp</li><li>Toque em <b>⋮ → Aparelhos conectados → Conectar aparelho</b></li><li>Aponte para este QR</li></ol></div>`;
+    box.innerHTML = `<div class="wa-qr"><img src="${esc(w.qr)}" alt="QR do WhatsApp" /><ol><li>No celular, abra o WhatsApp</li><li>Toque em <b>⋮ → Aparelhos conectados → Conectar aparelho</b></li><li>Aponte para este QR</li></ol>
+      <p class="dica" style="margin:10px 0 6px">O QR não funciona? Conecte com código:</p>
+      <form id="form-codigo" style="display:flex;gap:8px"><input name="numero" placeholder="5583999670561" style="flex:1;min-width:0" /><button class="btn btn-vidro btn-pequeno">Gerar código</button></form></div>`;
+    $('#form-codigo').onsubmit = async (e) => {
+      e.preventDefault();
+      const numero = new FormData(e.target).get('numero');
+      const b = $('button', e.target); b.disabled = true; b.textContent = 'Gerando…';
+      const r = await tentar(() => post('/wa/codigo', { numero }));
+      if (r?.codigo) { E.codigoPar = String(r.codigo).replace(/[^A-Z0-9]/gi, ''); renderConexao(); }
+      else { b.disabled = false; b.textContent = 'Gerar código'; }
+    };
   } else {
     box.innerHTML = `<div class="vazio" style="padding:18px 6px"><p class="jp">話</p><p>WhatsApp ${w.estado === 'conectando' ? 'conectando…' : 'desconectado'}.</p>
       <button class="btn btn-claro" id="wa-conectar"><i data-lucide="qr-code"></i>Conectar com QR</button>
@@ -483,7 +500,12 @@ async function carregarFila() {
   const lista = $('#lista-fila');
   if (!E.fila.length) { lista.innerHTML = `<div class="cartao vazio" style="grid-column:1/-1"><p class="jp">待</p><p>Nada ${E.filtroFila === 'pendente' ? 'esperando aprovação' : E.filtroFila === 'aprovado' ? 'aprovado esperando a vez' : 'aqui'}.</p></div>`; return; }
   const pend = E.filtroFila === 'pendente';
-  lista.innerHTML = E.fila.map((f) => `<div class="item-fila" data-id="${esc(f.id)}">
+  const topoAprovar = pend && E.fila.length > 1
+    ? `<div class="cartao" style="grid-column:1/-1;margin:0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <p style="margin:0">${E.fila.length} mensagens esperando. Aprovando, elas saem uma por vez, com ${esc(E.config.intervaloSeg || 90)}s+ entre cada, só das ${esc(E.config.horarioInicio ?? 8)}h às ${esc(E.config.horarioFim ?? 19)}h e até ${esc(E.config.limiteDia || 25)} conversas novas por dia.</p>
+        <button class="btn btn-ok" id="aprovar-todas"><i data-lucide="send"></i>Aprovar todas</button></div>`
+    : '';
+  lista.innerHTML = topoAprovar + E.fila.map((f) => `<div class="item-fila" data-id="${esc(f.id)}">
     <div class="topo"><div><p class="quem">${esc(f.nome || 'Contato')}</p><p class="num">${esc(fone(f.para))}</p></div>
       <span class="selo ${f.origem === 'mcp' ? '' : 'cinza'}">${f.origem === 'mcp' ? 'IA (MCP)' : 'você'}</span></div>
     ${pend ? `<textarea>${esc(f.texto)}</textarea>` : `<p style="margin:0;white-space:pre-wrap">${esc(f.texto)}</p>`}
@@ -491,6 +513,23 @@ async function carregarFila() {
     <p class="dica" style="margin:0">${new Date(f.criadoEm).toLocaleString('pt-BR')}${f.enviadoEm ? ` · enviada ${new Date(f.enviadoEm).toLocaleString('pt-BR')}` : ''}</p>
     ${pend ? `<div class="linha-botoes"><button class="btn btn-ok btn-pequeno" data-a="aprovar"><i data-lucide="send"></i>Aprovar e enviar</button><button class="btn btn-vidro btn-pequeno" data-a="salvar">Salvar texto</button><button class="btn btn-perigo btn-pequeno" data-a="rejeitar">Rejeitar</button></div>` : ''}
   </div>`).join('');
+  const bTodas = $('#aprovar-todas');
+  if (bTodas) bTodas.onclick = async () => {
+    if (!confirm(`Aprovar as ${E.fila.length} mensagens? Elas saem uma por vez, respeitando as travas.`)) return;
+    bTodas.disabled = true;
+    let ok = 0;
+    for (const f of E.fila) {
+      const el = lista.querySelector(`.item-fila[data-id="${f.id}"]`);
+      const texto = el && $('textarea', el)?.value;
+      try {
+        if (texto && texto !== f.texto) await patch(`/fila/${f.id}`, { texto });
+        await post(`/fila/${f.id}/aprovar`);
+        ok++;
+      } catch (e) { toast(`${f.nome || f.para}: ${e.message}`, 'erro'); }
+    }
+    toast(`${ok} aprovadas. Acompanhe nas abas Aprovadas e Enviadas.`, 'ok');
+    carregarFila();
+  };
   $$('.item-fila', lista).forEach((el) => {
     const id = el.dataset.id;
     $$('[data-a]', el).forEach((b) => (b.onclick = async () => {
@@ -635,11 +674,17 @@ async function iniciar() {
   icones();
   E.config = (await tentar(() => get('/config'))) || {};
   await carregarStatusWa();
-  irPara('painel');
+  const inicial = location.hash.slice(1);
+  irPara(['painel', 'prospectar', 'leads', 'whatsapp', 'fila', 'instagram', 'estudio', 'ajustes'].includes(inicial) ? inicial : 'painel');
   // atualizações periódicas
   setInterval(carregarStatusWa, 5000);
   setInterval(() => { contarFila(); if (E.tela === 'painel') renderPainel(); }, 30000);
-  setInterval(() => { if (E.tela === 'whatsapp' && E.wa.estado !== 'conectado') renderConexao(); }, 5000);
+  setInterval(() => {
+    if (E.tela !== 'whatsapp' || E.wa.estado === 'conectado' || E.codigoPar) return;
+    const campo = document.querySelector('#form-codigo input');
+    if (campo && (campo.value || document.activeElement === campo)) return; // não apaga o que ele está digitando
+    renderConexao();
+  }, 5000);
   setInterval(() => { if (E.tela === 'whatsapp' && E.wa.estado === 'conectado') carregarConversas(); }, 9000);
   setInterval(() => { if (E.tela === 'whatsapp' && E.chatJid) carregarMensagens(); }, 4000);
 }
