@@ -45,6 +45,46 @@ function rodarTreg(args, timeoutMs = 60000) {
   });
 }
 
+// Com a chave do time de prospecção salva na config (Ajustes → Token do treg), chama o treg direto por HTTP:
+// POST https://treg.to/call/<id> com X-Treg-Token. Sem chave, cai no CLI logado neste PC.
+async function chamarTregHttp(id, corpo, token) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const r = await fetch(`https://treg.to/call/${id}`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Treg-Token': token,
+        'X-Treg-Route-Max-Cost': '0.01',
+        'X-Treg-Route-Waterfall': '0',
+        'User-Agent': 'nagi-local',
+      },
+      body: JSON.stringify(corpo),
+    });
+    const texto = await r.text();
+    let json = null;
+    try { json = JSON.parse(texto); } catch {}
+    const custo = Number(r.headers.get('x-treg-cost-micro'));
+    const servidoPor = r.headers.get('x-treg-served-by') || '';
+    if (!r.ok) {
+      const det = json?.detail;
+      if (r.status === 402 || det?.error === 'insufficient_balance') {
+        return { erro: `saldo do treg insuficiente${det?.balance_micro != null ? ` (saldo US$ ${(det.balance_micro / 1e6).toFixed(4)})` : ''}. Recarregue a conta do time de prospecção em treg.to.` };
+      }
+      if (r.status === 401 || r.status === 403) return { erro: 'a chave do treg salva em Ajustes não foi aceita' };
+      return { erro: `treg ${r.status}: ${(det?.message || det?.error || texto || '').toString().slice(0, 160)}` };
+    }
+    if (!json) return { erro: 'resposta do treg não é JSON' };
+    return { json, custoMicro: Number.isFinite(custo) ? custo : null, servidoPor };
+  } catch (e) {
+    return { erro: e.name === 'AbortError' ? 'o treg demorou mais de 60 s' : `treg: ${e.message}` };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const primeiro = (o, ...ks) => {
   for (const k of ks) {
     const v = k.includes('.') ? k.split('.').reduce((a, p) => a?.[p], o) : o?.[k];
@@ -77,13 +117,20 @@ function normalizar(p) {
   const r = {
     nome: String(primeiro(p, 'title', 'name')),
     telefone,
-    site: limparSite(primeiro(p, 'website', 'site', 'domain', 'url')),
+    site: limparSite(primeiro(p, 'website', 'site', 'url', 'domain')),
     endereco: String(primeiro(p, 'address', 'full_address', 'formatted_address', 'address_info.address')),
-    nota: Number(primeiro(p, 'rating', 'rating.value')) || null,
+    nota: Number(primeiro(p, 'rating.value', 'rating')) || null,
     avaliacoes: Number(primeiro(p, 'reviews', 'reviews_count', 'user_ratings_total', 'ratingCount', 'rating.votes_count')) || null,
     categoria: String(primeiro(p, 'category', 'type') || (Array.isArray(tipos) ? tipos[0] : '') || ''),
     mapsUrl: String(primeiro(p, 'mapsUrl', 'maps_url', 'link', 'url', 'check_url') || ''),
   };
+  // site que é perfil do Instagram vira o @ do lead (ótimo para DM) e deixa de contar como site
+  r.instagram = '';
+  const ig = r.site.match(/instagram\.com\/?([A-Za-z0-9._]+)?/i);
+  if (ig) {
+    r.instagram = ig[1] && !/^(p|reel|explore|accounts)$/i.test(ig[1]) ? ig[1] : '';
+    r.site = '';
+  }
   if (r.mapsUrl && !/google\.[a-z.]+\/maps|maps\.google|goo\.gl\/maps|g\.page|cid=/i.test(r.mapsUrl)) r.mapsUrl = '';
   if (r.site && r.site === r.mapsUrl) r.site = '';
   return r;
@@ -94,11 +141,13 @@ export async function prospectarMaps({ busca, cidade, limite = 20 }) {
   const c = String(cidade || '').trim();
   if (!b) return { erro: 'informe o que buscar (ex.: barbearia)' };
   const q = c ? `${b} em ${c}` : b;
-  const corpo = JSON.stringify({ q, country: 'br', language: 'pt' });
-  const r = await rodarTreg([
+  const token = dados.config().tregToken;
+  const r = token
+    ? await chamarTregHttp('treg.google.serp.maps', { q, country: 'br', language: 'pt' }, token)
+    : await rodarTreg([
     'call', 'treg.google.serp.maps',
     '--method', 'POST',
-    '--data', corpo,
+    '--data', JSON.stringify({ q, country: 'br', language: 'pt' }),
     '--header', 'X-Treg-Route-Max-Cost: 0.01',
     '--header', 'X-Treg-Route-Waterfall: 0',
   ]);
@@ -121,7 +170,8 @@ export async function prospectarMaps({ busca, cidade, limite = 20 }) {
   return {
     busca: q,
     resultados,
-    servidoPor: meta.provider || meta.served_by || meta.endpoint || meta.route?.provider || '',
-    custoUSD: meta.cost_usd ?? (meta.cost_micro != null ? meta.cost_micro / 1e6 : meta.cost ?? null),
+    servidoPor: r.servidoPor || meta.served_by || meta.provider || meta.endpoint || meta.route?.provider || '',
+    custoUSD: r.custoMicro != null ? r.custoMicro / 1e6 : meta.charged_micro != null ? meta.charged_micro / 1e6 : meta.cost_usd ?? null,
+    conta: token ? 'time de prospecção (chave do Nagi)' : 'login do CLI',
   };
 }

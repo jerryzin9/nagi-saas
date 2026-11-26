@@ -188,7 +188,7 @@ function renderProspeccao() {
   box.hidden = false;
   box.innerHTML = `
     <div class="barra-acoes">
-      <p class="dica">${E.resultados.length} resultados para <b>${esc(E.ultimaBusca?.busca)}</b> em <b>${esc(E.ultimaBusca?.cidade)}</b>${E.ultimaBusca?.servidoPor ? ` · via ${esc(E.ultimaBusca.servidoPor)}` : ''}</p>
+      <p class="dica">${E.resultados.length} resultados para <b>${esc(E.ultimaBusca?.busca)}</b> em <b>${esc(E.ultimaBusca?.cidade)}</b>${E.ultimaBusca?.custoUSD != null ? ` · custou US$ ${Number(E.ultimaBusca.custoUSD).toFixed(4)}` : ''}</p>
       <div class="linha-botoes">
         <button class="btn btn-vidro btn-pequeno" id="sel-todos">Marcar os que têm telefone</button>
         <button class="btn btn-claro btn-pequeno" id="add-sel"><i data-lucide="plus"></i>Adicionar aos leads</button>
@@ -200,7 +200,7 @@ function renderProspeccao() {
       <td><p class="nome" style="margin:0">${esc(r.nome)}</p><p class="menor" style="margin:0">${esc(r.categoria || '')} ${r.jaEhLead ? '<span class="selo cinza">já é lead</span>' : ''}</p></td>
       <td>${r.nota ? `${esc(r.nota)}★ <span class="menor">(${esc(r.avaliacoes ?? 0)})</span>` : '<span class="menor">—</span>'}</td>
       <td>${r.telefone ? esc(fone(r.telefone)) : '<span class="menor">sem telefone</span>'}</td>
-      <td>${r.site ? `<a href="${esc(r.site)}" target="_blank" rel="noopener">abrir</a>` : '<span class="selo alerta">sem site</span>'}</td>
+      <td>${r.site ? `<a href="${esc(/^https?:/i.test(r.site) ? r.site : 'https://' + r.site)}" target="_blank" rel="noopener">abrir</a>` : '<span class="selo alerta">sem site</span>'}${r.instagram ? `<br><span class="menor">@${esc(r.instagram)}</span>` : ''}</td>
       <td class="menor">${esc(r.endereco || '')}</td></tr>`).join('')}
     </tbody></table>`;
   $('#sel-todos').onclick = () => $$('input[type=checkbox]', box).forEach((c) => { if (!c.disabled) c.checked = !!E.resultados[+c.dataset.i].telefone; });
@@ -208,7 +208,7 @@ function renderProspeccao() {
     const sel = $$('input[type=checkbox]:checked', box).map((c) => E.resultados[+c.dataset.i]);
     if (!sel.length) return toast('Marque pelo menos um resultado.');
     const novos = sel.map((r) => ({
-      nome: r.nome, empresa: r.nome, telefone: r.telefone || '', site: r.site || '', cidade: E.ultimaBusca.cidade,
+      nome: r.nome, empresa: r.nome, telefone: r.telefone || '', site: r.site || '', instagram: r.instagram || '', cidade: E.ultimaBusca.cidade,
       segmento: E.ultimaBusca.busca, origem: 'Google Maps (treg)', nota: r.nota || null,
       notas: [r.categoria, r.endereco, r.nota ? `${r.nota}★ (${r.avaliacoes ?? 0} avaliações)` : ''].filter(Boolean).join(' · '),
     }));
@@ -615,7 +615,7 @@ function ligar() {
     const b = $('button', e.target); b.disabled = true; b.innerHTML = 'Buscando no Maps…';
     const r = await tentar(() => post('/prospectar', d));
     b.disabled = false; b.innerHTML = '<i data-lucide="search"></i>Buscar'; icones();
-    if (r) { E.resultados = r.resultados || []; E.ultimaBusca = { ...d, servidoPor: r.servidoPor }; renderProspeccao(); if (!E.resultados.length) toast('Nenhum resultado. Tente outro termo ou cidade.'); }
+    if (r) { E.resultados = r.resultados || []; E.ultimaBusca = { ...d, servidoPor: r.servidoPor, custoUSD: r.custoUSD }; renderProspeccao(); if (!E.resultados.length) toast('Nenhum resultado. Tente outro termo ou cidade.'); }
   };
   $('#form-estudio').onsubmit = (e) => { e.preventDefault(); gerarPrevia(); };
   $('#baixar-lp').onclick = () => { if (!E.previaHTML) gerarPrevia(); baixar('pagina-nagi.html', E.previaHTML, 'text/html'); };
