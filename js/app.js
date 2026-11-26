@@ -436,7 +436,7 @@ function renderConexao() {
   } else if (w.estado === 'qr' && w.qr) {
     box.innerHTML = `<div class="wa-qr"><img src="${esc(w.qr)}" alt="QR do WhatsApp" /><ol><li>No celular, abra o WhatsApp</li><li>Toque em <b>⋮ → Aparelhos conectados → Conectar aparelho</b></li><li>Aponte para este QR</li></ol>
       <p class="dica" style="margin:10px 0 6px">O QR não funciona? Conecte com código:</p>
-      <form id="form-codigo" style="display:flex;gap:8px"><input name="numero" placeholder="5583999670561" style="flex:1;min-width:0" /><button class="btn btn-vidro btn-pequeno">Gerar código</button></form></div>`;
+      <form id="form-codigo" style="display:flex;gap:8px"><input name="numero" placeholder="5583900000000" style="flex:1;min-width:0" /><button class="btn btn-vidro btn-pequeno">Gerar código</button></form></div>`;
     $('#form-codigo').onsubmit = async (e) => {
       e.preventDefault();
       const numero = new FormData(e.target).get('numero');

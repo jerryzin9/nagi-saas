@@ -1,5 +1,7 @@
 # Nagi 凪
 
+![Nagi: painel com a Grande Onda de Hokusai sobre o oceano noturno](docs/nagi-capa.jpg)
+
 Painel pessoal de prospecção do Jerry. Roda só no PC, em `http://127.0.0.1:3456`.
 
 O visual é a Grande Onda de Kanagawa de Hokusai, recolorida em azuis da noite, sobre um oceano noturno em WebGL. O

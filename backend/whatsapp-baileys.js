@@ -317,7 +317,7 @@ export async function conectar() {
  *  (WhatsApp > Aparelhos conectados > Conectar aparelho > Conectar com número de telefone). */
 export async function codigoPareamento(numero) {
   const digitos = String(numero || '').replace(/\D/g, '');
-  if (digitos.length < 12) throw new Error('informe o número com DDI e DDD, ex.: 5583999670561');
+  if (digitos.length < 12) throw new Error('informe o número com DDI e DDD, ex.: 5583900000000');
   if (estado.estado === 'conectado') throw new Error('o WhatsApp já está conectado');
   parado = false;
   if (!sock) await iniciarSocket();

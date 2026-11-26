@@ -366,7 +366,7 @@ export async function conectar() {
 /** Alternativa ao QR: código de 8 caracteres para "Conectar com número de telefone" no celular. */
 export async function codigoPareamento(numero) {
   const digitos = String(numero || '').replace(/\D/g, '');
-  if (digitos.length < 12) throw new Error('informe o número com DDI e DDD, ex.: 5583999670561');
+  if (digitos.length < 12) throw new Error('informe o número com DDI e DDD, ex.: 5583900000000');
   if (estado.estado === 'conectado') throw new Error('o WhatsApp já está conectado');
   parado = false;
   if (!cliente) {
