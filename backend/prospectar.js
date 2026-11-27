@@ -247,6 +247,13 @@ export async function verificarLead({ nome, cidade, endereco, telefone, site, in
     local = !!cid && t.includes(cid);
     if (!local) motivos.push(`nada no nome/bio diz que é de ${cidade}`);
   }
+  // cidade homônima: "Cajazeiras SSA" é bairro de Salvador, não Cajazeiras-PB (27/11). Sigla de outro estado
+  // depois de "-", "/", "," ou "(" (ou SSA/Salvador) no nome/bio descarta.
+  if (uf) {
+    const outroUF = String(`${nome || ''} ${bio || ''} ${endereco || ''}`).match(/(?:[-–/,|(]\s*)(AC|AL|AM|AP|BA|CE|DF|ES|GO|MA|MG|MS|MT|PA|PB|PE|PI|PR|RJ|RN|RO|RR|RS|SC|SE|SP|TO)\b(?!\s+[A-ZÀ-Ú]{2,})|\b(SSA|Salvador)\b/g) || [];
+    const fora = outroUF.map((m) => (m.match(/[A-Z]{2,3}$|Salvador$/) || [''])[0]).find((s) => s && s !== uf && !(s === 'SSA' && uf === 'BA') && !(s === 'Salvador' && uf === 'BA'));
+    if (fora) { local = false; motivos.push(`o nome/bio cita outro lugar (${fora}), não ${cidade}`); }
+  }
   const ddd = String(telefone || '').replace(/\D/g, '').replace(/^55/, '').slice(0, 2);
   if (telefone && uf && DDD_UF[uf] && !DDD_UF[uf].includes(ddd)) {
     local = false;
